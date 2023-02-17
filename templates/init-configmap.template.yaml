@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: init-container
+  namespace: %%%NAMESPACE%%%
+data:
+  init-container.sh: |
+   #!/bin/bash
+   echo "[gpfs]
+   name=gpfs packages
+   baseurl=file:///usr/lpp/mmfs/5.1.3.1/gpfs_rpms/
+   enabled=1
+   gpgcheck=0
+   [zimon]
+   name=zimon packages
+   baseurl=file:///usr/lpp/mmfs/5.1.3.1/zimon_rpms/rhel7/
+   enabled=1
+   gpgcheck=0" | tee /etc/yum.repos.d/gpfs.repo
+   yum install -y gpfs.base gpfs.docs gpfs.ext gpfs.gpl gpfs.gskit gpfs.msg.en_US \
+   gpfs.gss.pmsensors-5.1.3-1.el7.x86_64 gpfs.gss.pmcollector-5.1.3-1.el7.x86_64
+   /usr/lpp/mmfs/bin/mmbuildgpl
+   printf 'UUID=%s %s\t\t%s\t%s\t\t%s %s\n' \
+   "$(blkid $(df -h /usr/lpp | awk '{print $1}' | grep -v Filesystem) | awk '{print $2}' | awk -F'\"' '{print $2}')" \
+   "/usr/lpp" \
+   "$(blkid $(df -h /usr/lpp | awk '{print $1}' | grep -v Filesystem) | awk '{print $3}' | awk -F'\"' '{print $2}')" \
+   "defaults" "0" "0" >> /etc/fstab
+   printf 'UUID=%s %s\t\t%s\t%s\t\t%s %s\n' \
+   "$(blkid $(df -h /var/mmfs | awk '{print $1}' | grep -v Filesystem) | awk '{print $2}' | awk -F'\"' '{print $2}')" \
+   "/var/mmfs" \
+   "$(blkid $(df -h /var/mmfs | awk '{print $1}' | grep -v Filesystem) | awk '{print $3}' | awk -F'\"' '{print $2}')" \
+   "defaults" "0" "0" >> /etc/fstab
+   mkdir -p /var/run/sshd && mkdir -p /root/.ssh
+    if ! [ "$(ls -A /root/ssh/ssh_host* 2>/dev/null)" ]; then
+     chmod 700 -R /root/.ssh
+     ssh-keygen -t rsa -f /root/ssh/ssh_host_rsa_key -N ''
+     ssh-keygen -t ecdsa -f /root/ssh/ssh_host_ecdsa_key -N ''
+     ssh-keygen -t ed25519 -f /root/ssh/ssh_host_ed25519_key -N ''
+     chmod 400 /root/ssh/*_key
+     cp /root/ssh/*_key.pub /etc/ssh/
+     cp /root/ssh/*_key /etc/ssh/
+   fi
+   if ! [ "$(ls -A /root/.ssh/authorized_keys 2>/dev/null)" ]; then
+     touch /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
+   fi
+   if ! [ "$(ls -A /root/.ssh/id_rsa* 2>/dev/null)" ]; then
+     cp /etc/ssh/ssh_host_rsa_key /root/.ssh/id_rsa
+     cp /etc/ssh/ssh_host_rsa_key.pub /root/.ssh/id_rsa.pub
+   fi
+   sed -ri 's/#   IdentityFile ~\/.ssh\/id_rsa/   IdentityFile ~\/.ssh\/id_rsa/' /etc/ssh/ssh_config
+   sed -ri 's/#PermitRootLogin yes/PermitRootLogin yes/g' /etc/ssh/sshd_config
+   localedef -f UTF-8 -i en_US en_US.UTF-8
+   echo "export PATH=\$PATH:/usr/lpp/mmfs/bin" >> /root/.bash_profile
+   bash -c "printf \"export LC_CTYPE=en_US.UTF-8\nexport LC_ALL=en_US.UTF-8\n\" | tee -a /root/.bashrc"
+   bash -c 'echo -e "export PATH=/usr/lpp/mmfs/bin:\$PATH" | tee -a /root/.bashrc'
+   NSD_FILE=/root/StanzaFile
+   if [ -f "$NSD_FILE" ]; then
+     cp "$NSD_FILE" /tmp/
+   fi
+   /usr/sbin/sshd -D
