@@ -16,7 +16,7 @@ White='\033[0;37m'        # White
 # **************************************************************************** #
 
 function usage () {
-    echo "Usage: $0 [-N <k8s_namespace>] [-H <worker_list>] [-C <cluster_name>] [-b <cc_image_repo>] [-i <cc_image_tag>] [-q <quorum_count>] [-n <nsd_list>] [-d <nsd_devices>] [-f <fs_name>] [-t <timeout>]"
+    echo "Usage: $0 [-N <k8s_namespace>] [-H <worker_list>] [-C <cluster_name>] [-b <cc_image_repo>] [-i <cc_image_tag>] [-q <quorum_count>] [-n <nsd_list>] [-d <nsd_devices>] [-f <fs_name>] [-t <timeout>] [-v <gpfs_version>]"
     echo
     echo "-N    Specify desired kubernetes Namespace on which the instance will live (default is 'ns\$(date +%s)')"
     echo "      It must be a compliant DNS-1123 label and match =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
@@ -30,6 +30,7 @@ function usage () {
     echo "-d    Specify desired list of devices for NSD nodes (comma separated, e.g.: /dev/sda,/dev/sdb)"
     echo "-f    Specify desired GPFS file system name (mountpoint is /ibm/<fs_name>)"
     echo "-t    Specify desired timeout for Pods creation in seconds (default is 3600)"
+    echo "-v    Specify desired GPFS version for cluster creation (default is 5.1.2-8)"
     echo
     echo "-h    Show usage and exit"
     echo
@@ -91,10 +92,11 @@ HOST_COUNT=1
 NSD_COUNT=0
 QRM_COUNT=1
 TIMEOUT=3600
+VERSION=5.1.2-8
 workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
 WORKER_COUNT="${#workers[@]}"
 
-while getopts 'N:C:H:b:i:q:n:d:f:t:h' opt; do
+while getopts 'N:C:H:b:i:q:n:d:f:t:v:h' opt; do
     case "${opt}" in
         N) # a DNS-1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
             if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
@@ -166,6 +168,13 @@ while getopts 'N:C:H:b:i:q:n:d:f:t:h' opt; do
             else
                 echo "! Wrong arg -$opt"; exit 1
             fi ;;
+        v) # GPFS version must match pre-installed release
+            GPFS_PRE_INSTALLED=$(ssh ${workers[0]} sudo ls /usr/lpp/mmfs | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$')
+            if [[ "$OPTARG" == "$GPFS_PRE_INSTALLED" ]]; then
+                VERSION=${OPTARG}
+            else
+                echo "! Wrong arg -$opt"; exit 1
+            fi ;;
         h)
             usage
             exit 0 ;;
@@ -188,6 +197,7 @@ echo "NSD_LIST=$NSD_LIST"
 echo "DEVICE_LIST=$DEVICE_LIST"
 echo "FS_NAME=$FS_NAME"
 echo "TIMEOUT=$TIMEOUT"
+echo "VERSION=$VERSION"
 
 
 # **********************************************************************************************
@@ -207,6 +217,7 @@ sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "namespace-$NAMESPACE.yaml"
 # Generate the configmap files
 cp "$TEMPLATES_DIR/init-configmap.template.yaml" "init-configmap.yaml"
 sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "init-configmap.yaml"
+sed -i "s/%%%VERSION%%%/${VERSION}/g" "init-configmap.yaml"
 
 cp "$TEMPLATES_DIR/cluster-configmap.template.yaml" "cluster-configmap.yaml"
 sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "cluster-configmap.yaml"
@@ -221,7 +232,7 @@ gen_role mgr $HOST_COUNT
 
 printf '\n'
 echo -e "${Yellow} Node list: ${Color_Off}"
-for i in $(seq 1 $NSD_COUNT)
+for i in $(seq 1 $HOST_COUNT)
 do
   j=`expr $i - 1`
   echo "   ${HOST_ARRAY[$j]%%.*}-gpfs-mgr-$i-0:manager" | tee -a "cluster-configmap.yaml"
@@ -495,3 +506,4 @@ echo "NSD_LIST=$NSD_LIST"
 echo "DEVICE_LIST=$DEVICE_LIST"
 echo "FS_NAME=$FS_NAME"
 echo "TIMEOUT=$TIMEOUT"
+echo "VERSION=$VERSION"

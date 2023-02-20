@@ -8,16 +8,16 @@ data:
    #!/bin/bash
    echo "[gpfs]
    name=gpfs packages
-   baseurl=file:///usr/lpp/mmfs/5.1.3.1/gpfs_rpms/
+   baseurl=file:///usr/lpp/mmfs/%%%VERSION%%%/gpfs_rpms/
    enabled=1
    gpgcheck=0
    [zimon]
    name=zimon packages
-   baseurl=file:///usr/lpp/mmfs/5.1.3.1/zimon_rpms/rhel7/
+   baseurl=file:///usr/lpp/mmfs/%%%VERSION%%%/zimon_rpms/rhel7/
    enabled=1
    gpgcheck=0" | tee /etc/yum.repos.d/gpfs.repo
    yum install -y gpfs.base gpfs.docs gpfs.ext gpfs.gpl gpfs.gskit gpfs.msg.en_US \
-   gpfs.gss.pmsensors-5.1.3-1.el7.x86_64 gpfs.gss.pmcollector-5.1.3-1.el7.x86_64
+   gpfs.gss.pmsensors-%%%VERSION%%%.el7.x86_64 gpfs.gss.pmcollector-%%%VERSION%%%.el7.x86_64
    /usr/lpp/mmfs/bin/mmbuildgpl
    printf 'UUID=%s %s\t\t%s\t%s\t\t%s %s\n' \
    "$(blkid $(df -h /usr/lpp | awk '{print $1}' | grep -v Filesystem) | awk '{print $2}' | awk -F'\"' '{print $2}')" \
