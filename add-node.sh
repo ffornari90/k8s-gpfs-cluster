@@ -16,21 +16,15 @@ White='\033[0;37m'        # White
 # **************************************************************************** #
 
 function usage () {
-    echo "Usage: $0 [-N <k8s_namespace>] [-H <worker_list>] [-C <cluster_name>] [-b <cc_image_repo>] [-i <cc_image_tag>] [-q <quorum_count>] [-n <nsd_list>] [-d <nsd_devices>] [-f <fs_name>] [-t <timeout>] [-v <gpfs_version>]"
+    echo "Usage: $0 [-N <k8s_namespace>] [-b <cc_image_repo>] [-i <cc_image_tag>] [-t <timeout>] [-v <gpfs_version>]"
     echo
-    echo "-N    Specify desired kubernetes Namespace on which the cluster will live (default is 'ns\$(date +%s)')"
+    echo "-N    Specify the kubernetes Namespace on which the cluster resides (default is 'ns\$(date +%s)')"
     echo "      It must be a compliant DNS-1123 label and match =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
     echo "      In practice, must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character"
-    echo "-H    Specify the list of worker nodes on which the GPFS cluster must be deployed (comma separated, e.g.: worker001,worker002)"
-    echo "-C    Specify the name of the GPFS cluster to be deployed (default is 'gpfs\$(date +%s)')"
-    echo "-b    Specify docker image repository to be used for Pods creation (default is $CC_IMAGE_REPO)"
-    echo "-i    Specify docker image tag to be used for Pods creation (default is $CC_IMAGE_TAG)"
-    echo "-q    Specify desired number of quorum servers (default is 1)"
-    echo "-n    Specify desired list of Network Shared Disks worker nodes (comma separated, e.g.: worker001,worker002)"
-    echo "-d    Specify desired list of devices for NSD nodes (comma separated, e.g.: /dev/sda,/dev/sdb)"
-    echo "-f    Specify desired GPFS file system name (mountpoint is /ibm/<fs_name>)"
-    echo "-t    Specify desired timeout for Pods creation in seconds (default is 3600)"
-    echo "-v    Specify desired GPFS version for cluster creation (default is 5.1.2-8)"
+    echo "-b    Specify docker image repository to be used for node creation (default is $CC_IMAGE_REPO)"
+    echo "-i    Specify docker image tag to be used for node creation (default is $CC_IMAGE_TAG)"
+    echo "-t    Specify desired timeout for node creation in seconds (default is 3600)"
+    echo "-v    Specify desired GPFS version for node creation (default is 5.1.2-8)"
     echo
     echo "-h    Show usage and exit"
     echo
@@ -38,31 +32,26 @@ function usage () {
 
 function gen_role () {
     local role=$1
-    local role_count=$2
 
     image_repo=$CC_IMAGE_REPO
     image_tag=$CC_IMAGE_TAG
-    hostnames=$HOST_COUNT
 
-    for i in $(seq 1 $role_count); do
-        [[ -z $role_count ]] && i=""
-        j=`expr $i - 1`
-        cp "$TEMPLATES_DIR/gpfs-${role}.template.yaml" "gpfs-${role}${i}.yaml"
-        sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "gpfs-${role}${i}.yaml"
-        sed -i "s/%%%NUMBER%%%/${i}/g" "gpfs-${role}${i}.yaml"
-        sed -i "s|%%%IMAGE_REPO%%%|${image_repo}|g" "gpfs-${role}${i}.yaml"
-        sed -i "s/%%%IMAGE_TAG%%%/${image_tag}/g" "gpfs-${role}${i}.yaml"
-        if [[ $hostnames -eq 0 ]]; then
-          workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
-          RANDOM=$$$(date +%s)
-          selected_worker=${workers[ $RANDOM % ${#workers[@]} ]}
-          sed -i "s/%%%NODENAME%%%/${selected_worker}/g" "gpfs-${role}${i}.yaml"
-          sed -i "s/%%%PODNAME%%%/${selected_worker%%.*}-gpfs-${role}-${i}/g" "gpfs-${role}${i}.yaml"
-        else
-          sed -i "s/%%%NODENAME%%%/${HOST_ARRAY[$j]}/g" "gpfs-${role}${i}.yaml"
-          sed -i "s/%%%PODNAME%%%/${HOST_ARRAY[$j]%%.*}-gpfs-${role}-${i}/g" "gpfs-${role}${i}.yaml"
-        fi
-    done
+    result=$(ls | grep -o "${role}[0-9]\+" | cut -c4- | tail -1)
+    if [ -z "$result" ]; then
+      index=1
+    else
+      index=`expr $result + 1`
+    fi
+    cp "$TEMPLATES_DIR/gpfs-${role}.template.yaml" "gpfs-${role}${index}.yaml"
+    sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "gpfs-${role}${index}.yaml"
+    sed -i "s/%%%NUMBER%%%/${index}/g" "gpfs-${role}${index}.yaml"
+    sed -i "s|%%%IMAGE_REPO%%%|${image_repo}|g" "gpfs-${role}${index}.yaml"
+    sed -i "s/%%%IMAGE_TAG%%%/${image_tag}/g" "gpfs-${role}${index}.yaml"
+    workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
+    RANDOM=$$$(date +%s)
+    selected_worker=${workers[ $RANDOM % ${#workers[@]} ]}
+    sed -i "s/%%%NODENAME%%%/${selected_worker}/g" "gpfs-${role}${index}.yaml"
+    sed -i "s/%%%PODNAME%%%/${selected_worker%%.*}-gpfs-${role}-${index}/g" "gpfs-${role}${index}.yaml"
 }
 
 function k8s-exec() {
@@ -82,87 +71,25 @@ function k8s-exec() {
 
 # defaults
 NAMESPACE="ns$(date +%s)"
-CLUSTER_NAME="gpfs$(date +%s)"
 CC_IMAGE_REPO="ffornari/gpfs-mgr"
 CC_IMAGE_TAG="centos7"
-HOST_LIST=""
-NSD_LIST=""
-DEVICE_LIST=""
-FS_NAME=""
-HOST_COUNT=1
-NSD_COUNT=0
-QRM_COUNT=1
+HOST_COUNT=0
 TIMEOUT=3600
 VERSION=5.1.2-8
 workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
 WORKER_COUNT="${#workers[@]}"
 
-while getopts 'N:C:H:b:i:q:n:d:f:t:v:h' opt; do
+while getopts 'N:b:i:t:v:h' opt; do
     case "${opt}" in
         N) # a DNS-1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
             if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
                 then NAMESPACE=${OPTARG}
                 else echo "! Wrong arg -$opt"; exit 1
             fi ;;
-        C) # cluster name must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
-            if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
-                then CLUSTER_NAME=${OPTARG}
-                else echo "! Wrong arg -$opt"; exit 1
-            fi ;;
-        H)
-            num_commas=$(echo "${OPTARG}" | tr -cd ',' | wc -c)
-            if [[ $num_commas -lt $WORKER_COUNT ]]; then
-                if grep -q -P '^([[:alnum:]]+\.)*[[:alnum:]]+([,]([[:alnum:]]+\.)*[[:alnum:]]+)*$' <<< $OPTARG; then
-                    IFS=', ' read -r -a HOST_ARRAY <<< "${OPTARG}"
-                    HOST_COUNT="${#HOST_ARRAY[@]}"
-                    HOST_LIST="${OPTARG}"
-                else
-                    echo "! Wrong arg -$opt"; exit 1
-                fi
-            else
-                echo "! Wrong arg -$opt"; exit 1
-            fi ;;
         b)
             CC_IMAGE_REPO=${OPTARG} ;;
         i)
             CC_IMAGE_TAG=${OPTARG} ;;
-        q) # quorum count must be an integer greater than 0
-            if [[ $OPTARG =~ ^[0-9]+$ ]] && [[ $OPTARG -gt 0 ]]; then
-                QRM_COUNT=${OPTARG}
-            else
-                echo "! Wrong arg -$opt"; exit 1
-            fi ;;
-        n) 
-            num_commas=$(echo "${OPTARG}" | tr -cd ',' | wc -c)
-            if [[ $num_commas -lt $WORKER_COUNT ]]; then
-                if grep -q -P '^([[:alnum:]]+\.)*[[:alnum:]]+([,]([[:alnum:]]+\.)*[[:alnum:]]+)*$' <<< $OPTARG; then
-                    IFS=', ' read -r -a NSD_ARRAY <<< "${OPTARG}"
-                    NSD_COUNT="${#NSD_ARRAY[@]}"
-                    NSD_LIST="${OPTARG}"
-                else
-                    echo "! Wrong arg -$opt"; exit 1
-                fi
-            else
-                echo "! Wrong arg -$opt"; exit 1
-            fi ;;
-        d) # list of devices must consist in a comma separated list of NSD_COUNT "/dev/xxx" strings
-            num_commas=$(echo "${OPTARG}" | tr -cd ',' | wc -c)
-            if [[ $NSD_COUNT -gt 0 ]]; then
-                if grep -q -P '^/dev/\w+(?:\s*,\s*/dev/\w+){'$num_commas'}$' <<< $OPTARG; then
-                    IFS=', ' read -r -a DEVICE_ARRAY <<< "${OPTARG}"
-                    DEVICE_COUNT="${#DEVICE_ARRAY[@]}"
-                    DEVICE_LIST="${OPTARG}"
-                else
-                    echo "! Wrong arg -$opt"; exit 1
-                fi
-            else
-                echo "! Wrong arg -$opt"; exit 1
-            fi ;;
-        f) # FS name must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
-            if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
-                then FS_NAME=${OPTARG}
-                else echo "! Wrong arg -$opt"; exit 1
-            fi ;;
         t) # timeout must be an integer greater than 0
             if [[ $OPTARG =~ ^[0-9]+$ ]] && [[ $OPTARG -gt 0 ]]; then
                 TIMEOUT=${OPTARG}
@@ -187,16 +114,9 @@ done
 shift $((OPTIND-1))
 
 echo "NAMESPACE=$NAMESPACE"
-echo "CLUSTER_NAME=$CLUSTER_NAME"
 echo "CC_IMAGE_REPO=$CC_IMAGE_REPO"
 echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "HOST_COUNT=$HOST_COUNT"
-echo "QRM_COUNT=$QRM_COUNT"
-echo "NSD_COUNT=$NSD_COUNT"
-echo "HOST_LIST=$HOST_LIST"
-echo "NSD_LIST=$NSD_LIST"
-echo "DEVICE_LIST=$DEVICE_LIST"
-echo "FS_NAME=$FS_NAME"
 echo "TIMEOUT=$TIMEOUT"
 echo "VERSION=$VERSION"
 
@@ -207,105 +127,30 @@ echo "VERSION=$VERSION"
 
 TEMPLATES_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/templates" # one-liner that gives the full directory name of the script no matter where it is being called from.
 GPFS_INSTANCE_DIR="gpfs-instance-$NAMESPACE"
-mkdir $GPFS_INSTANCE_DIR
+if [ ! -d $GPFS_INSTANCE_DIR ]; then
+  echo "k8s namespace $NAMESPACE does not exist. Exit."
+  exit 1
+fi
 cd $GPFS_INSTANCE_DIR
 
-
-# Generate the namespace
-cp "$TEMPLATES_DIR/namespace.template.yaml" "namespace-$NAMESPACE.yaml"
-sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "namespace-$NAMESPACE.yaml"
-
-# Generate the configmap files
-cp "$TEMPLATES_DIR/init-configmap.template.yaml" "init-configmap.yaml"
-sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "init-configmap.yaml"
-sed -i "s/%%%VERSION%%%/${VERSION}/g" "init-configmap.yaml"
-
-cp "$TEMPLATES_DIR/cluster-configmap.template.yaml" "cluster-configmap.yaml"
-sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "cluster-configmap.yaml"
-
-if [[ $NSD_COUNT -gt 0 ]]; then
-  cp "$TEMPLATES_DIR/nsd-configmap.template.yaml" "nsd-configmap.yaml"
-  sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "nsd-configmap.yaml"
-fi
-
 # Generate the manager manifests
-gen_role mgr $HOST_COUNT
-
+gen_role cli
+index=$(ls | grep -o 'cli[0-9]\+' | cut -c4- | tail -1)
 printf '\n'
-echo -e "${Yellow} Node list: ${Color_Off}"
-for i in $(seq 1 $HOST_COUNT)
-do
-  j=`expr $i - 1`
-  echo "   ${HOST_ARRAY[$j]%%.*}-gpfs-mgr-$i-0:manager" | tee -a "cluster-configmap.yaml"
-done
-
-for i in $(seq 1 $QRM_COUNT)
-do
-  j=`expr $i - 1`
-  sed -i "s/${HOST_ARRAY[$j]%%.*}-gpfs-mgr-$i-0:manager/${HOST_ARRAY[$j]%%.*}-gpfs-mgr-$i-0:quorum-manager/" "cluster-configmap.yaml"
-done
-
-printf '\n'
-if [[ $NSD_COUNT -gt 0 ]]; then
-  echo -e "${Yellow} NSD list: ${Color_Off}"
-  for j in $(seq 1 $NSD_COUNT)
-  do
-    k=`expr $j - 1`
-    for i in $(seq 1 $DEVICE_COUNT)
-    do
-      DEVICE_INDEX=`expr $i - 1`
-      PARITY=`expr $j % 2`
-      [ $PARITY -eq 0 ] && FG="2" || FG="${PARITY}"
-      echo '   %nsd:
-        device='${DEVICE_ARRAY[$DEVICE_INDEX]}'
-        nsd=nsd'$j'
-        servers='"${HOST_ARRAY[$k]%%.*}-gpfs-mgr-${j}-0"'
-        usage=dataAndMetadata
-        failureGroup='$FG'
-        pool=system' | tee -a "nsd-configmap.yaml"
-      printf '\n' | tee -a "nsd-configmap.yaml"
-    done
-  done
-  cp "$TEMPLATES_DIR/nsd-patch.template.yaml" "nsd-patch.yaml"
-  sed -i "s/%%%PODNAME%%%/${HOST_ARRAY[0]%%.*}-gpfs-mgr-1/g" "nsd-patch.yaml"
-  kubectl patch --local=true -f "gpfs-mgr1.yaml" --patch "$(cat nsd-patch.yaml)" -o yaml > tmpfile
-  cat tmpfile > "gpfs-mgr1.yaml"
-  rm -f tmpfile
-fi
-
 # Generate the services
-for i in $(seq 1 $HOST_COUNT)
-do
-  cp "$TEMPLATES_DIR/gpfs-svc.template.yaml" "svc${i}.yaml"
-  sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "svc${i}.yaml"
-  sed -i "s/%%%NUMBER%%%/${i}/g" "svc${i}.yaml"
-done
+cp "$TEMPLATES_DIR/gpfs-svc.template.yaml" "cli-svc${index}.yaml"
+sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "cli-svc${index}.yaml"
+sed -i "s/%%%NUMBER%%%/${i}/g" "cli-svc${index}.yaml"
 
 # **********************************************************************************************
 # Deploy the instance #
 # **********************************************************************************************
 
 shopt -s nullglob # The shopt -s nullglob will make the glob expand to nothing if there are no matches.
-roles_yaml=(gpfs-*.yaml)
-
-# Instantiate the namespace
-kubectl apply -f "namespace-$NAMESPACE.yaml"
-if command -v oc &> /dev/null; then
-  oc adm policy add-scc-to-user privileged -z default -n $NAMESPACE
-fi
-
-# Instantiate the configmap
-kubectl apply -f "init-configmap.yaml"
-kubectl apply -f "cluster-configmap.yaml"
-if [[ $NSD_COUNT -gt 0 ]]; then
-  kubectl apply -f "nsd-configmap.yaml"
-fi
+roles_yaml=(gpfs-cli*.yaml)
 
 # Instantiate the services
-for i in $(seq 1 $HOST_COUNT)
-do
-  kubectl apply -f "svc${i}.yaml"
-done
+kubectl apply -f "cli-svc${index}.yaml"
 
 # Conditionally split the pod creation in groups, since apparently the external provisioner (manila?) can't deal with too many volume-creation request per second
 g=1
