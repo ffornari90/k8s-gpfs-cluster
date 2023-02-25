@@ -1,0 +1,26 @@
+controller:
+  config:
+    entries: {external-status-address: %%%FIP%%%}
+  enableTLSPassthrough: true
+  nodeSelector: {kubernetes.io/role: ingress}
+  hostNetwork: true
+  service:
+    externalIPs: [%%%FIP%%%]
+    externalTrafficPolicy: Local
+    extraLabels: {}
+    httpPort:
+      enable: true
+      nodePort: 31811
+      port: 80
+      targetPort: 80
+    httpsPort:
+      enable: true
+      nodePort: 30506
+      port: 443
+      targetPort: 443
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []
+    type: NodePort
+  tolerations:
+  - key: "node-role.kubernetes.io/master"
+    effect: "NoSchedule"

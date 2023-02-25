@@ -69,6 +69,11 @@ function k8s-exec() {
 #                                  Entrypoint                                  #
 # **************************************************************************** #
 
+if [ $# -eq 0 ]; then
+  echo "No arguments supplied. You can see available options with -h."
+  exit 1
+fi
+
 # defaults
 NAMESPACE="ns$(date +%s)"
 CC_IMAGE_REPO="ffornari/gpfs-mgr"
@@ -223,6 +228,7 @@ rm -f hosts.tmp
 
 echo -e "${Yellow} Distribute SSH keys on all the Pods... ${Color_Off}"
 
+mgr_hosts=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-mgr -ojsonpath="{.items[*].spec.nodeName}"`)
 mgr_pods=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-mgr -ojsonpath="{.items[*].metadata.name}"`)
 
 for i in $(seq 1 ${#mgr_pods[@]})
@@ -231,9 +237,16 @@ do
   ssh "${HOST_NAME}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${mgr_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
 done
 
+for i in $(seq 1 ${#mgr_hosts[@]})
+do
+  j=`expr $i - 1`
+  ssh "${mgr_hosts[$k]}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
+done
+
 for pod1 in ${mgr_pods[@]}
 do
   kubectl -n $NAMESPACE exec -it $pod1 -- bash -c "ssh -o \"StrictHostKeyChecking=no\" $POD_NAME hostname"
+  kubectl -n $NAMESPACE exec -it $POD_NAME -- bash -c "ssh -o \"StrictHostKeyChecking=no\" $pod1 hostname"
 done
 
 echo -e "${Yellow} Add GPFS node to the cluster from quorum-manager... ${Color_Off}"

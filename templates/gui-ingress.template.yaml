@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gpfs-gui-ingress
+  namespace: %%%NAMESPACE%%%
+  annotations:
+          nginx.org/ssl-services: "%%%NAMESPACE%%%" # This is important for services requiring https
+spec:
+  tls:
+    - hosts:
+      - k8s-gpfs-gui.novalocal # Domain name of the service
+      secretName: gui-cert # provide the aforementioned secret.
+  rules:
+  - host: k8s-gpfs-gui.novalocal
+    http:
+      paths:
+      - path: "/"
+        pathType: Prefix
+        backend:
+          service:
+            name: gpfs-gui
+            port:
+              number: 443
+  ingressClassName: nginx

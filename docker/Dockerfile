@@ -1,6 +1,9 @@
 FROM centos:7
 ARG version
-RUN yum install -y "http://os-server.cr.cnaf.infn.it/distro/Storage/updates/kernel-headers-${version}.rpm" && \
+RUN yum update -y && \
+    yum clean all && \
+    rm -rf /var/cache/yum && \   
+    yum install -y "http://os-server.cr.cnaf.infn.it/distro/Storage/updates/kernel-headers-${version}.rpm" && \
     yum clean all && \
     rm -rf /var/cache/yum && \
     yum install -y "http://os-server.cr.cnaf.infn.it/distro/Storage/updates/kernel-devel-${version}.rpm" && \

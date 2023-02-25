@@ -80,6 +80,11 @@ function k8s-exec() {
 #                                  Entrypoint                                  #
 # **************************************************************************** #
 
+if [ $# -eq 0 ]; then
+  echo "No arguments supplied. You can see available options with -h."
+  exit 1
+fi
+
 # defaults
 NAMESPACE="ns$(date +%s)"
 CLUSTER_NAME="gpfs$(date +%s)"
@@ -276,9 +281,9 @@ fi
 # Generate the services
 for i in $(seq 1 $HOST_COUNT)
 do
-  cp "$TEMPLATES_DIR/gpfs-svc.template.yaml" "svc${i}.yaml"
-  sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "svc${i}.yaml"
-  sed -i "s/%%%NUMBER%%%/${i}/g" "svc${i}.yaml"
+  cp "$TEMPLATES_DIR/gpfs-mgr-svc.template.yaml" "mgr-svc${i}.yaml"
+  sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "mgr-svc${i}.yaml"
+  sed -i "s/%%%NUMBER%%%/${i}/g" "mgr-svc${i}.yaml"
 done
 
 # **********************************************************************************************
@@ -304,7 +309,7 @@ fi
 # Instantiate the services
 for i in $(seq 1 $HOST_COUNT)
 do
-  kubectl apply -f "svc${i}.yaml"
+  kubectl apply -f "mgr-svc${i}.yaml"
 done
 
 # Conditionally split the pod creation in groups, since apparently the external provisioner (manila?) can't deal with too many volume-creation request per second
@@ -500,7 +505,6 @@ echo "CC_IMAGE_REPO=$CC_IMAGE_REPO"
 echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "HOST_COUNT=$HOST_COUNT"
 echo "QRM_COUNT=$QRM_COUNT"
-echo "MGR_COUNT=$MGR_COUNT"
 echo "NSD_COUNT=$NSD_COUNT"
 echo "HOST_LIST=$HOST_LIST"
 echo "NSD_LIST=$NSD_LIST"
