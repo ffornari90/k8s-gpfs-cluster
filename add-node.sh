@@ -138,7 +138,7 @@ gen_role cli
 index=$(ls | grep -o 'cli[0-9]\+' | cut -c4- | tail -1)
 printf '\n'
 # Generate the services
-cp "$TEMPLATES_DIR/gpfs-svc.template.yaml" "cli-svc${index}.yaml"
+cp "$TEMPLATES_DIR/gpfs-cli-svc.template.yaml" "cli-svc${index}.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NUMBER%%%/${i}/g" "cli-svc${index}.yaml"
 
@@ -147,29 +147,31 @@ sed -i "s/%%%NUMBER%%%/${i}/g" "cli-svc${index}.yaml"
 # **********************************************************************************************
 
 shopt -s nullglob # The shopt -s nullglob will make the glob expand to nothing if there are no matches.
-roles_yaml=(gpfs-cli*.yaml)
+roles_yaml=("gpfs-cli*.yaml")
 
 # Instantiate the services
 kubectl apply -f "cli-svc${index}.yaml"
 
 # Conditionally split the pod creation in groups, since apparently the external provisioner (manila?) can't deal with too many volume-creation request per second
 g=1
-count=1;
+count=1
+CLI_FILE="./gpfs-cli${index}.yaml"
+HOST_NAME=$(cat $CLI_FILE | grep nodeName | awk '{print $2}')
+POD_NAME="$(cat $CLI_FILE | grep -m1 name | awk '{print $2}')-0"
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
-    j=`expr $i + 1`
-    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/client$j/var_mmfs\""
-    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/client$j/root_ssh\""
-    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/client$j/etc_ssh\""
+    ssh "${HOST_NAME}" -l centos "sudo su - -c \"mkdir -p /root/cli${index}/var_mmfs\""
+    ssh "${HOST_NAME}" -l centos "sudo su - -c \"mkdir -p /root/cli${index}/root_ssh\""
+    ssh "${HOST_NAME}" -l centos "sudo su - -c \"mkdir -p /root/cli${index}/etc_ssh\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
     done
 
-    podsReady=$(kubectl get pods --namespace=$NAMESPACE -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" |  wc -l)
+    podsReady=$(kubectl get pods --namespace=$NAMESPACE -lrole=gpfs-cli -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" |  wc -l)
     podsReadyExpected=$(( $((i+g))<${#roles_yaml[@]} ? $((i+g)) : ${#roles_yaml[@]} ))
     # [ tty ] && tput sc @todo
     while [[ $count -le 600 ]] && [[ "$podsReady" -lt "$podsReadyExpected" ]]; do
-        podsReady=$(kubectl get pods --namespace=$NAMESPACE -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" | wc -l)
+        podsReady=$(kubectl get pods --namespace=$NAMESPACE -lrole=gpfs-cli -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" | wc -l)
         if [[ $(($count%10)) == 0 ]]; then
             # [ tty ] && tput rc @todo
             echo -e "\n${Yellow} Current situation of pods: ${Color_Off}"
@@ -215,55 +217,51 @@ do
   kubectl cp hosts.tmp $NAMESPACE/$pod:/tmp/hosts.tmp
   kubectl -n $NAMESPACE exec -it $pod -- bash -c "cp /etc/hosts hosts.tmp; sed -i \"$ d\" hosts.tmp; yes | cp hosts.tmp /etc/hosts; rm -f hosts.tmp"
   kubectl -n $NAMESPACE exec -it $pod -- bash -c 'cat /tmp/hosts.tmp >> /etc/hosts'
+  kubectl -n $NAMESPACE exec -it $pod -- bash -c 'sort /etc/hosts | uniq > hosts.tmp; yes | cp hosts.tmp /etc/hosts; rm -f hosts.tmp'
 done
 rm -f hosts.tmp
 
 echo -e "${Yellow} Distribute SSH keys on all the Pods... ${Color_Off}"
 
-for pod in ${pods[@]}
+mgr_pods=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-mgr -ojsonpath="{.items[*].metadata.name}"`)
+
+for i in $(seq 1 ${#mgr_pods[@]})
 do
-  for i in $(seq 1 $HOST_COUNT)
-  do
-    j=`expr $i - 1`
-    ssh "${HOST_ARRAY[$j]}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it $pod -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/client$i/root_ssh/authorized_keys"
-  done
-done
-for pod1 in ${pods[@]}
-do
-  for pod2 in ${pods[@]}
-  do
-    kubectl -n $NAMESPACE exec -it $pod1 -- bash -c "ssh -o \"StrictHostKeyChecking=no\" $pod2 hostname"
-  done
+  j=`expr $i - 1`
+  ssh "${HOST_NAME}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${mgr_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
 done
 
-echo -e "${Yellow} Exec GPFS cluster setup on quorum-manager... ${Color_Off}"
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmcrcluster -N /root/node.list -C ${CLUSTER_NAME} -r /usr/bin/ssh -R /usr/bin/scp --profile gpfsprotocoldefaults"
+for pod1 in ${mgr_pods[@]}
+do
+  kubectl -n $NAMESPACE exec -it $pod1 -- bash -c "ssh -o \"StrictHostKeyChecking=no\" $POD_NAME hostname"
+done
+
+echo -e "${Yellow} Add GPFS node to the cluster from quorum-manager... ${Color_Off}"
+k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmaddnode -N $POD_NAME:client"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
-echo -e "${Yellow} Assign GPFS server licenses to managers... ${Color_Off}"
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmchlicense server --accept -N managerNodes"
+echo -e "${Yellow} Assign GPFS client licenses to node... ${Color_Off}"
+k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmchlicense client --accept -N $POD_NAME"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 echo -e "${Yellow} Check GPFS cluster configuration... ${Color_Off}"
 k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmlscluster"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
-echo -e "${Yellow} Start GPFS daemon on every manager... ${Color_Off}"
+echo -e "${Yellow} Start GPFS daemon on client node... ${Color_Off}"
 failure=0; pids="";
-for i in $(seq 1 $HOST_COUNT); do
-    k8s-exec gpfs-mgr${i} "/usr/lpp/mmfs/bin/mmstartup"
-    pids="${pids} $!"
-    sleep 0.1
-done
+k8s-exec gpfs-cli${index} "/usr/lpp/mmfs/bin/mmstartup"
+pids="${pids} $!"
+sleep 0.1
 for pid in ${pids}; do
     wait ${pid} || let "failure=1"
 done
 if [[ "${failure}" == "1" ]]; then
-    echo -e "${Red} Failed to Exec on one of the managers ${Color_Off}"
+    echo -e "${Red} Failed to Exec on the client node ${Color_Off}"
     exit 1
 fi
 
-echo -e "${Yellow} Wait until GPFS daemon is active on every manager... ${Color_Off}"
+echo -e "${Yellow} Wait until GPFS daemon is active on the client node... ${Color_Off}"
 # Check status
 check_active() {
     [[ "${*}" =~ ^(active )*active$ ]]
@@ -275,58 +273,32 @@ do
   node_states=(`k8s-exec gpfs-mgr1 '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
 done
 
-if [[ $NSD_COUNT -gt 0 ]]; then
-    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmgetstate -a"
-    echo -e "${Yellow} Create desired number of NSDs... ${Color_Off}"
-    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmcrnsd -F /tmp/StanzaFile -v no"
-    if [[ "$?" -ne 0 ]]; then exit 1; fi
-else
-    sleep 30
-    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmgetstate -a"
-fi
+sleep 30
+k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmgetstate -a"
 
-if ! [ -z "$FS_NAME" ]; then
-    echo -e "${Yellow} Create GPFS file system on previously created NSDs... ${Color_Off}"
-    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmcrfs ${FS_NAME} -F /tmp/StanzaFile -A no -B 4M -m 1 -M 2 -n 100 -Q no -j scatter -k nfs4 -r 2 -R 2 -T /ibm/${FS_NAME}"
-    if [[ "$?" -ne 0 ]]; then exit 1; fi
-
-    echo -e "${Yellow} Mount GPFS file system on every manager... ${Color_Off}"
-    failure=0; pids="";
-    for i in $(seq 1 $HOST_COUNT); do
-        k8s-exec gpfs-mgr${i} "/usr/lpp/mmfs/bin/mmmount ${FS_NAME}"
-        pids="${pids} $!"
-        sleep 0.1
-    done
-    for pid in ${pids}; do
-        wait ${pid} || let "failure=1"
-    done
-    if [[ "${failure}" == "1" ]]; then
-        echo -e "${Red} Failed to Exec on one of the managers ${Color_Off}"
-        exit 1
-    fi
+echo -e "${Yellow} Mount GPFS file system on client node... ${Color_Off}"
+failure=0; pids="";
+k8s-exec gpfs-cli${index} "/usr/lpp/mmfs/bin/mmmount all_local"
+pids="${pids} $!"
+sleep 0.1
+for pid in ${pids}; do
+    wait ${pid} || let "failure=1"
+done
+if [[ "${failure}" == "1" ]]; then
+    echo -e "${Red} Failed to Exec on one of the managers ${Color_Off}"
+    exit 1
 fi
 
 echo -e "${Yellow} Setup sensors and collectors to gather monitoring metrics... ${Color_Off}"
-declare -a mgr_list
-for i in $(seq 1 $HOST_COUNT)
-do
-  j=`expr $i - 1`
-  mgr_list+=("${HOST_ARRAY[$j]%%.*}-gpfs-mgr-$i-0")
-done
-printf -v mgr_joined '%s,' "${mgr_list[@]}"
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmperfmon config generate --collectors ${mgr_joined%,}"
-if [[ "$?" -ne 0 ]]; then exit 1; fi
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmchnode --perfmon -N managerNodes"
+k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmchnode --perfmon -N ${POD_NAME}"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
-for i in $(seq 1 $HOST_COUNT)
-do
-  k8s-exec gpfs-mgr$i "sed -i 's/%H/\$HOSTNAME/g' /usr/lib/systemd/system/pmsensors.service"
-  k8s-exec gpfs-mgr$i "systemctl start pmsensors; systemctl stop pmsensors; systemctl start pmsensors"
-  if [[ "$?" -ne 0 ]]; then exit 1; fi
-  k8s-exec gpfs-mgr$i "systemctl start pmcollector"
-  if [[ "$?" -ne 0 ]]; then exit 1; fi
-done
+k8s-exec gpfs-cli$index "sed -i 's/%H/\$HOSTNAME/g' /usr/lib/systemd/system/pmsensors.service"
+k8s-exec gpfs-cli$index "systemctl start pmsensors; systemctl stop pmsensors; systemctl start pmsensors"
+if [[ "$?" -ne 0 ]]; then exit 1; fi
+k8s-exec gpfs-cli$index "systemctl start pmcollector"
+if [[ "$?" -ne 0 ]]; then exit 1; fi
+
 sleep 10
 if command -v oc &> /dev/null; then
   oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po -lapp=gpfs-mgr1 -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
@@ -340,16 +312,8 @@ echo -e "${Green} Exec went OK for all the Pods ${Color_Off}"
 # print configuration summary
 echo ""
 echo "NAMESPACE=$NAMESPACE"
-echo "CLUSTER_NAME=$CLUSTER_NAME"
 echo "CC_IMAGE_REPO=$CC_IMAGE_REPO"
 echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "HOST_COUNT=$HOST_COUNT"
-echo "QRM_COUNT=$QRM_COUNT"
-echo "MGR_COUNT=$MGR_COUNT"
-echo "NSD_COUNT=$NSD_COUNT"
-echo "HOST_LIST=$HOST_LIST"
-echo "NSD_LIST=$NSD_LIST"
-echo "DEVICE_LIST=$DEVICE_LIST"
-echo "FS_NAME=$FS_NAME"
 echo "TIMEOUT=$TIMEOUT"
 echo "VERSION=$VERSION"

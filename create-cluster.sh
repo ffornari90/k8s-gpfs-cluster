@@ -312,9 +312,9 @@ g=1
 count=1;
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
     j=`expr $i + 1`
-    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/client$j/var_mmfs\""
-    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/client$j/root_ssh\""
-    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/client$j/etc_ssh\""
+    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/mgr$j/var_mmfs\""
+    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/mgr$j/root_ssh\""
+    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/mgr$j/etc_ssh\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
@@ -380,7 +380,7 @@ do
   for i in $(seq 1 $HOST_COUNT)
   do
     j=`expr $i - 1`
-    ssh "${HOST_ARRAY[$j]}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it $pod -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/client$i/root_ssh/authorized_keys"
+    ssh "${HOST_ARRAY[$j]}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it $pod -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
   done
 done
 for pod1 in ${pods[@]}

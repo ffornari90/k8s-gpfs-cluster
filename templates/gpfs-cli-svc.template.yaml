@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: &name gpfs-cli%%%NUMBER%%%
+  namespace: %%%NAMESPACE%%%
+spec:
+  selector:
+    app: *name
+  ports:
+  - name: gpfs-svc
+    protocol: TCP
+    port: 1191
+    targetPort: 1191
+  - name: gpfs-ssh
+    protocol: TCP
+    port: 22
+    targetPort: 22

@@ -22,9 +22,14 @@ fi
 for i in $(seq 1 $WORKER_COUNT)
 do
   MGR_FILE="./gpfs-instance-$namespace/gpfs-mgr${i}.yaml"
+  CLI_FILE="./gpfs-instance-$namespace/gpfs-cli${i}.yaml"
   if [ -f "$MGR_FILE" ]; then
     HOST_NAME=$(cat $MGR_FILE | grep nodeName | awk '{print $2}')
-    ssh $HOST_NAME -l centos "sudo su - -c \"rm -rf /root/client*\""
+    ssh $HOST_NAME -l centos "sudo su - -c \"rm -rf /root/mgr*\""
+  fi
+  if [ -f "$CLI_FILE" ]; then
+    HOST_NAME=$(cat $CLI_FILE | grep nodeName | awk '{print $2}')
+    ssh $HOST_NAME -l centos "sudo su - -c \"rm -rf /root/cli*\""
   fi
 done
 kubectl delete ns $namespace

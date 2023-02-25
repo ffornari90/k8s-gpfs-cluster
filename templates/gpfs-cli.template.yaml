@@ -4,21 +4,21 @@ metadata:
   name: %%%PODNAME%%%
   namespace: %%%NAMESPACE%%%
   labels:
-    app: gpfs-mgr%%%NUMBER%%%
-    role: gpfs-mgr
+    app: gpfs-cli%%%NUMBER%%%
+    role: gpfs-cli
 spec:
   selector:
     matchLabels:
-      app: gpfs-mgr%%%NUMBER%%%
-      role: gpfs-mgr
-  serviceName: &name gpfs-mgr%%%NUMBER%%%
+      app: gpfs-cli%%%NUMBER%%%
+      role: gpfs-cli
+  serviceName: &name gpfs-cli%%%NUMBER%%%
   replicas: 1
   template:
     metadata:
-      name: &name gpfs-mgr%%%NUMBER%%%
+      name: &name gpfs-cli%%%NUMBER%%%
       labels:
         app: *name
-        role: gpfs-mgr
+        role: gpfs-cli
     spec:
       hostNetwork: false
       nodeName: %%%NODENAME%%%
@@ -38,9 +38,6 @@ spec:
           - name: init-container
             mountPath: /scripts/init-container.sh
             subPath: init-container.sh
-          - name: node-list
-            mountPath: /root/node.list
-            subPath: node.list
           - name: installdir
             mountPath: /usr/lpp
           - name: gendir
@@ -54,23 +51,19 @@ spec:
         configMap:
           name: init-container
           defaultMode: 0755
-      - name: node-list
-        configMap:
-          name: node-list
-          defaultMode: 0644
       - name: installdir
         hostPath:
           path: /usr/lpp
           type: Directory
       - name: gendir
         hostPath:
-          path: /root/mgr%%%NUMBER%%%/var_mmfs
+          path: /root/cli%%%NUMBER%%%/var_mmfs
           type: Directory
       - name: etcsshdir
         hostPath:
-          path: /root/mgr%%%NUMBER%%%/etc_ssh
+          path: /root/cli%%%NUMBER%%%/etc_ssh
           type: Directory
       - name: rootsshdir
         hostPath:
-          path: /root/mgr%%%NUMBER%%%/root_ssh
+          path: /root/cli%%%NUMBER%%%/root_ssh
           type: Directory
