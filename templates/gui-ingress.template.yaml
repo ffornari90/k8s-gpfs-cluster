@@ -4,7 +4,7 @@ metadata:
   name: gpfs-gui-ingress
   namespace: %%%NAMESPACE%%%
   annotations:
-          nginx.org/ssl-services: "%%%NAMESPACE%%%" # This is important for services requiring https
+          nginx.org/ssl-services: "gpfs-gui" # This is important for services requiring https
 spec:
   tls:
     - hosts:

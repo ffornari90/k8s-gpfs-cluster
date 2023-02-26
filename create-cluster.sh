@@ -16,7 +16,7 @@ White='\033[0;37m'        # White
 # **************************************************************************** #
 
 function usage () {
-    echo "Usage: $0 [-N <k8s_namespace>] [-H <worker_list>] [-C <cluster_name>] [-b <cc_image_repo>] [-i <cc_image_tag>] [-q <quorum_count>] [-n <nsd_list>] [-d <nsd_devices>] [-f <fs_name>] [-t <timeout>] [-v <gpfs_version>]"
+    echo "Usage: $0 [-N <k8s_namespace>] [-H <worker_list>] [-C <cluster_name>] [-b <cc_image_repo>] [-i <cc_image_tag>] [-q <quorum_count>] [-n <nsd_list>] [-d <nsd_devices>] [-f <fs_name>] [-g <gui_list>] [-t <timeout>] [-v <gpfs_version>]"
     echo
     echo "-N    Specify desired kubernetes Namespace on which the cluster will live (default is 'ns\$(date +%s)')"
     echo "      It must be a compliant DNS-1123 label and match =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
@@ -29,6 +29,7 @@ function usage () {
     echo "-n    Specify desired list of Network Shared Disks worker nodes (comma separated, e.g.: worker001,worker002)"
     echo "-d    Specify desired list of devices for NSD nodes (comma separated, e.g.: /dev/sda,/dev/sdb)"
     echo "-f    Specify desired GPFS file system name (mountpoint is /ibm/<fs_name>)"
+    echo "-g    Specify desired list of GUI worker nodes (comma separated, e.g.: worker001,worker002)"
     echo "-t    Specify desired timeout for Pods creation in seconds (default is 3600)"
     echo "-v    Specify desired GPFS version for cluster creation (default is 5.1.2-8)"
     echo
@@ -92,17 +93,19 @@ CC_IMAGE_REPO="ffornari/gpfs-mgr"
 CC_IMAGE_TAG="centos7"
 HOST_LIST=""
 NSD_LIST=""
+GUI_LIST=""
 DEVICE_LIST=""
 FS_NAME=""
 HOST_COUNT=1
 NSD_COUNT=0
+GUI_COUNT=0
 QRM_COUNT=1
 TIMEOUT=3600
 VERSION=5.1.2-8
 workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
 WORKER_COUNT="${#workers[@]}"
 
-while getopts 'N:C:H:b:i:q:n:d:f:t:v:h' opt; do
+while getopts 'N:C:H:b:i:q:n:d:f:g:t:v:h' opt; do
     case "${opt}" in
         N) # a DNS-1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
             if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
@@ -168,6 +171,19 @@ while getopts 'N:C:H:b:i:q:n:d:f:t:v:h' opt; do
                 then FS_NAME=${OPTARG}
                 else echo "! Wrong arg -$opt"; exit 1
             fi ;;
+        g) 
+            num_commas=$(echo "${OPTARG}" | tr -cd ',' | wc -c)
+            if [[ $num_commas -lt $WORKER_COUNT ]]; then
+                if grep -q -P '^([[:alnum:]]+\.)*[[:alnum:]]+([,]([[:alnum:]]+\.)*[[:alnum:]]+)*$' <<< $OPTARG; then
+                    IFS=', ' read -r -a GUI_ARRAY <<< "${OPTARG}"
+                    GUI_COUNT="${#GUI_ARRAY[@]}"
+                    GUI_LIST="${OPTARG}"
+                else
+                    echo "! Wrong arg -$opt"; exit 1
+                fi
+            else
+                echo "! Wrong arg -$opt"; exit 1
+            fi ;;
         t) # timeout must be an integer greater than 0
             if [[ $OPTARG =~ ^[0-9]+$ ]] && [[ $OPTARG -gt 0 ]]; then
                 TIMEOUT=${OPTARG}
@@ -198,8 +214,10 @@ echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "HOST_COUNT=$HOST_COUNT"
 echo "QRM_COUNT=$QRM_COUNT"
 echo "NSD_COUNT=$NSD_COUNT"
+echo "GUI_COUNT=$GUI_COUNT"
 echo "HOST_LIST=$HOST_LIST"
 echo "NSD_LIST=$NSD_LIST"
+echo "GUI_LIST=$GUI_LIST"
 echo "DEVICE_LIST=$DEVICE_LIST"
 echo "FS_NAME=$FS_NAME"
 echo "TIMEOUT=$TIMEOUT"
@@ -233,10 +251,43 @@ if [[ $NSD_COUNT -gt 0 ]]; then
   sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "nsd-configmap.yaml"
 fi
 
+if [[ $GUI_COUNT -gt 0 ]]; then
+  cp "$TEMPLATES_DIR/gui-svc.template.yaml" "gui-svc.yaml"
+  sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "gui-svc.yaml"
+  cp "$TEMPLATES_DIR/gui-ingress.template.yaml" "gui-ingress.yaml"
+  sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "gui-ingress.yaml"
+fi
+
 # Generate the manager manifests
 gen_role mgr $HOST_COUNT
 
 printf '\n'
+for i in $(seq 1 $GUI_COUNT)
+do
+  k=`expr $i - 1`
+  for j in $(seq 1 $HOST_COUNT)
+  do
+    l=`expr $j - 1`
+    if [[ "${GUI_ARRAY[$k]%%.*}" == "${HOST_ARRAY[$l]%%.*}" ]]; then
+      PATTERN="role: gpfs-mgr"
+      LINE1="    svc: gpfs-gui" 
+      LINE2="      svc: gpfs-gui" 
+      LINE3="        svc: gpfs-gui" 
+      FILENAME="gpfs-mgr${j}.yaml"
+      awk "/$PATTERN/{c++;if(c==1){print;print \"$LINE1\";next}}1" "$FILENAME" > "$FILENAME.tmp"
+      mv "$FILENAME.tmp" "$FILENAME"
+      rm -f "$FILENAME.tmp"
+      awk "/$PATTERN/{c++;if(c==2){print;print \"$LINE2\";next}}1" "$FILENAME" > "$FILENAME.tmp"
+      mv "$FILENAME.tmp" "$FILENAME"
+      rm -f "$FILENAME.tmp"
+      awk "/$PATTERN/{c++;if(c==3){print;print \"$LINE3\";next}}1" "$FILENAME" > "$FILENAME.tmp"
+      mv "$FILENAME.tmp" "$FILENAME"
+      rm -f "$FILENAME.tmp"
+      break
+    fi
+  done
+done
+
 echo -e "${Yellow} Node list: ${Color_Off}"
 for i in $(seq 1 $HOST_COUNT)
 do
@@ -311,6 +362,13 @@ for i in $(seq 1 $HOST_COUNT)
 do
   kubectl apply -f "mgr-svc${i}.yaml"
 done
+
+if [[ $GUI_COUNT -gt 0 ]]; then
+  openssl req -newkey rsa:2048 -nodes -x509 -days 1825 -keyout self-signed.key.pem -out self-signed.cert.pem -subj '/CN=k8s-gpfs-gui.novalocal'
+  kubectl create secret tls gui-cert --cert=self-signed.cert.pem --key=self-signed.key.pem -n $NAMESPACE
+  kubectl apply -f "gui-svc.yaml"
+  kubectl apply -f "gui-ingress.yaml"
+fi
 
 # Conditionally split the pod creation in groups, since apparently the external provisioner (manila?) can't deal with too many volume-creation request per second
 g=1
@@ -487,7 +545,59 @@ do
   k8s-exec gpfs-mgr$i "systemctl start pmcollector"
   if [[ "$?" -ne 0 ]]; then exit 1; fi
 done
-sleep 10
+
+if [[ $GUI_COUNT -gt 0 ]]; then
+  echo -e "${Yellow} Setup GUI on selected manager nodes... ${Color_Off}"
+  for i in $(seq 1 $GUI_COUNT)
+  do
+    k=`expr $i - 1`
+    for j in $(seq 1 $HOST_COUNT)
+    do
+      l=`expr $j - 1`
+      if [[ "${GUI_ARRAY[$k]%%.*}" == "${HOST_ARRAY[$l]%%.*}" ]]; then
+        k8s-exec gpfs-mgr$j "yum install -y gpfs.java gpfs.gui"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "echo 'Defaults secure_path=\"/usr/lpp/mmfs/gui/bin-sudo:/usr/lpp/mmfs/bin:/bin:/usr/bin:/sbin:/usr/sbin\"' > /etc/sudoers.d/secure_path"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "sed -i 's/\s\+md5\s\+/         trust /g' /usr/lpp/mmfs/gui/bin-sudo/check4pgsql"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "sed -i 's/User=scalemgmt/User=root/g' /usr/lib/systemd/system/gpfsgui.service"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "systemctl start gpfsgui"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        sleep 10
+        k8s-exec gpfs-mgr$j "systemctl stop gpfsgui"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "echo 'export PATH=\"/usr/lpp/mmfs/gui/bin-sudo:/usr/lpp/mmfs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"' >> /etc/profile"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "sed -i 's/su scalemgmt -s //g' /usr/lpp/mmfs/gui/bin-sudo/check4sudoers"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "setcap cap_sys_chroot,cap_setuid,cap_setgid+ep /bin/python3.6"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "setcap cap_net_admin,cap_net_raw+ep /sbin/xtables-multi"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -m g:scalemgmt:rwx -R /var"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -m g:scalemgmt:rwx -R /etc/sysconfig"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -m g:scalemgmt:rwx -R /opt"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -m g:scalemgmt:rwx -R /usr/lpp"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -m g:scalemgmt:rwx /root"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -m g:scalemgmt:rwx /root/.pgpass"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "sed -i 's/User=root/User=scalemgmt/g' /usr/lib/systemd/system/gpfsgui.service"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        k8s-exec gpfs-mgr$j "systemctl start gpfsgui"
+        if [[ "$?" -ne 0 ]]; then exit 1; fi
+        break
+      fi
+    done
+  done
+fi
+
 if command -v oc &> /dev/null; then
   oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po -lapp=gpfs-mgr1 -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
 else
@@ -506,8 +616,10 @@ echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "HOST_COUNT=$HOST_COUNT"
 echo "QRM_COUNT=$QRM_COUNT"
 echo "NSD_COUNT=$NSD_COUNT"
+echo "GUI_COUNT=$GUI_COUNT"
 echo "HOST_LIST=$HOST_LIST"
 echo "NSD_LIST=$NSD_LIST"
+echo "GUI_LIST=$GUI_LIST"
 echo "DEVICE_LIST=$DEVICE_LIST"
 echo "FS_NAME=$FS_NAME"
 echo "TIMEOUT=$TIMEOUT"
