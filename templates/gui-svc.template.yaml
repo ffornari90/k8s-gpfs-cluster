@@ -10,8 +10,8 @@ spec:
   - name: gui-http
     protocol: TCP
     port: 80
-    targetPort: 47080
+    targetPort: 80
   - name: gui-https
     protocol: TCP
     port: 443
-    targetPort: 47443
+    targetPort: 443

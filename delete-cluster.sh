@@ -32,5 +32,9 @@ do
     ssh $HOST_NAME -l centos "sudo su - -c \"rm -rf /root/cli*\""
   fi
 done
+GUI_FILE="./gpfs-instance-$namespace/gui-svc.yaml"
+if [ -f "$GUI_FILE" ]; then
+  helm uninstall gpfs  
+fi
 kubectl delete ns $namespace
 rm -rf "./gpfs-instance-$namespace"

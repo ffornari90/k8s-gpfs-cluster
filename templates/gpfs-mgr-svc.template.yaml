@@ -15,3 +15,15 @@ spec:
     protocol: TCP
     port: 22
     targetPort: 22
+  - name: gpfs-collec1
+    protocol: TCP
+    port: 4739
+    targetPort: 4739
+  - name: gpfs-collec2
+    protocol: TCP
+    port: 9085
+    targetPort: 9085
+  - name: gpfs-sysmon
+    protocol: TCP
+    port: 9980
+    targetPort: 9980

@@ -256,6 +256,9 @@ if [[ $GUI_COUNT -gt 0 ]]; then
   sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "gui-svc.yaml"
   cp "$TEMPLATES_DIR/gui-ingress.template.yaml" "gui-ingress.yaml"
   sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "gui-ingress.yaml"
+  MASTER_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+  cp "$TEMPLATES_DIR/nginx-ingress.template.yaml" "nginx-ingress.yaml"
+  sed -i "s/%%%FIP%%%/${MASTER_IP}/g" "nginx-ingress.yaml"
 fi
 
 # Generate the manager manifests
@@ -364,6 +367,7 @@ do
 done
 
 if [[ $GUI_COUNT -gt 0 ]]; then
+  helm install gpfs nginx-stable/nginx-ingress --values "nginx-ingress.yaml"
   openssl req -newkey rsa:2048 -nodes -x509 -days 1825 -keyout self-signed.key.pem -out self-signed.cert.pem -subj '/CN=k8s-gpfs-gui.novalocal'
   kubectl create secret tls gui-cert --cert=self-signed.cert.pem --key=self-signed.key.pem -n $NAMESPACE
   kubectl apply -f "gui-svc.yaml"
@@ -525,14 +529,14 @@ if ! [ -z "$FS_NAME" ]; then
 fi
 
 echo -e "${Yellow} Setup sensors and collectors to gather monitoring metrics... ${Color_Off}"
-declare -a mgr_list
+declare -a mgr_pod_list
 for i in $(seq 1 $HOST_COUNT)
 do
   j=`expr $i - 1`
-  mgr_list+=("${HOST_ARRAY[$j]%%.*}-gpfs-mgr-$i-0")
+  mgr_pod_list+=("${HOST_ARRAY[$j]%%.*}-gpfs-mgr-$i-0")
 done
-printf -v mgr_joined '%s,' "${mgr_list[@]}"
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmperfmon config generate --collectors ${mgr_joined%,}"
+printf -v mgr_pod_joined '%s,' "${mgr_pod_list[@]}"
+k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmperfmon config generate --collectors ${mgr_pod_joined%,}"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmchnode --perfmon -N managerNodes"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
@@ -555,7 +559,7 @@ if [[ $GUI_COUNT -gt 0 ]]; then
     do
       l=`expr $j - 1`
       if [[ "${GUI_ARRAY[$k]%%.*}" == "${HOST_ARRAY[$l]%%.*}" ]]; then
-        k8s-exec gpfs-mgr$j "yum install -y gpfs.java gpfs.gui"
+        k8s-exec gpfs-mgr$j "yum install -y python-requests gpfs.java gpfs.gui"
         if [[ "$?" -ne 0 ]]; then exit 1; fi
         k8s-exec gpfs-mgr$j "echo 'Defaults secure_path=\"/usr/lpp/mmfs/gui/bin-sudo:/usr/lpp/mmfs/bin:/bin:/usr/bin:/sbin:/usr/sbin\"' > /etc/sudoers.d/secure_path"
         if [[ "$?" -ne 0 ]]; then exit 1; fi
@@ -576,17 +580,17 @@ if [[ $GUI_COUNT -gt 0 ]]; then
         if [[ "$?" -ne 0 ]]; then exit 1; fi
         k8s-exec gpfs-mgr$j "setcap cap_net_admin,cap_net_raw+ep /sbin/xtables-multi"
         if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -m g:scalemgmt:rwx -R /var"
+        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -R /var/log"
         if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -m g:scalemgmt:rwx -R /etc/sysconfig"
+        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -R /etc/sysconfig"
         if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -m g:scalemgmt:rwx -R /opt"
+        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -R /opt"
         if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -m g:scalemgmt:rwx -R /usr/lpp"
+        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -R /usr/lpp"
         if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -m g:scalemgmt:rwx /root"
+        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx /root/.pgpass"
         if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -m g:scalemgmt:rwx /root/.pgpass"
+        k8s-exec gpfs-mgr$j "chmod 701 /root"
         if [[ "$?" -ne 0 ]]; then exit 1; fi
         k8s-exec gpfs-mgr$j "sed -i 's/User=root/User=scalemgmt/g' /usr/lib/systemd/system/gpfsgui.service"
         if [[ "$?" -ne 0 ]]; then exit 1; fi
