@@ -630,18 +630,18 @@ notifiers: {}
 ##
 ## `path` must be /var/lib/grafana/dashboards/<provider_name>
 ##
-dashboardProviders: {}
-#  dashboardproviders.yaml:
-#    apiVersion: 1
-#    providers:
-#    - name: 'default'
-#      orgId: 1
-#      folder: ''
-#      type: file
-#      disableDeletion: false
-#      editable: true
-#      options:
-#        path: /var/lib/grafana/dashboards/default
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+    - name: 'default'
+      orgId: 1
+      folder: ''
+      type: file
+      disableDeletion: false
+      editable: true
+      options:
+        path: /var/lib/grafana/dashboards/default
 
 ## Configure grafana dashboard to import
 ## NOTE: To use dashboards you must also enable/configure dashboardProviders
@@ -1998,7 +1998,7 @@ dashboards:
                 "type": "custom"
               },
               {
-                "allValue": "(gpfsk8s)",
+                "allValue": "(%%%FS_NAME%%%)",
                 "current": {
                   "selected": true,
                   "tags": [],
@@ -2046,7 +2046,7 @@ dashboards:
               {
                 "allValue": ".*",
                 "current": {},
-                "datasource": "${DS_PROMETHEUS}",
+                "datasource": "Prometheus",
                 "definition": "label_values(gpfs_perf_read_bytes_total{fs=~\"$fs\",role=\"compute\"}, cluster)",
                 "description": null,
                 "error": null,
@@ -2072,7 +2072,7 @@ dashboards:
               {
                 "allValue": ".*",
                 "current": {},
-                "datasource": "${DS_PROMETHEUS}",
+                "datasource": "Prometheus",
                 "definition": "label_values(gpfs_perf_read_bytes_total{fs=~\"$fs\",cluster=\"$cluster\",role=\"compute\"}, host)",
                 "description": null,
                 "error": null,

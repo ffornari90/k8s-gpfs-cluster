@@ -37,8 +37,12 @@ if [ -f "$GRAFANA_FILE" ]; then
   helm uninstall gpfs
   helm uninstall prometheus
   helm uninstall grafana
+  kubectl delete -f "./gpfs-instance-$namespace/grafana-admin-secret.yaml"
+  kubectl delete secret grafana-cert
   kubectl delete -f "./gpfs-instance-$namespace/prometheus-server-pvc.yaml"
   kubectl delete -f "./gpfs-instance-$namespace/grafana-server-pvc.yaml"
+  kubectl delete -f "./gpfs-instance-$namespace/prometheus-ingress.yaml"
+  kubectl delete -f "./gpfs-instance-$namespace/grafana-ingress.yaml"
 fi
 kubectl delete ns $namespace
 rm -rf "./gpfs-instance-$namespace"

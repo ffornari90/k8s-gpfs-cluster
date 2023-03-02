@@ -1035,12 +1035,6 @@ extraScrapeConfigs: |
         regex: "([^.]+)..*"
         replacement: "$1"
         target_label: host
-    static_configs:
-      - targets:
-        labels:
-          cluster: %%%CLUSTER_NAME%%%
-          environment: test
-          role: compute
 
 # Adds option to add alert_relabel_configs to avoid duplicate alerts in alertmanager
 # useful in H/A prometheus with different external labels but the same alerts

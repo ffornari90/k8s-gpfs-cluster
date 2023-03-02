@@ -254,6 +254,7 @@ if [[ "$MON_DEPLOY" == "yes" ]]; then
   cp "$TEMPLATES_DIR/grafana-admin-secret.template.yaml" "grafana-admin-secret.yaml"
   cp "$TEMPLATES_DIR/nginx-ingress.template.yaml" "nginx-ingress.yaml"
   sed -i "s/%%%PASSWORD%%%/${PASSWORD}/g" "grafana-admin-secret.yaml"
+  sed -i "s/%%%FS_NAME%%%/${FS_NAME}/g" "grafana.yaml"
   sed -i "s/%%%FIP%%%/${MASTER_IP}/g" "nginx-ingress.yaml"
 fi
 
@@ -440,7 +441,8 @@ k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmlscluster"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 if [[ "$MON_DEPLOY" == "yes" ]]; then
-  CLUSTER_NAME=$(k8s-exec gpfs-mgr1 '/usr/lpp/mmfs/bin/mmlscluster -Y | grep ssh | awk '"'"'{print \$7}'"'")
+  echo -e "${Yellow} Setup Prometheus and Grafana for cluster monitoring... ${Color_Off}"
+  CLUSTER_NAME=`k8s-exec gpfs-mgr1 '/usr/lpp/mmfs/bin/mmlscluster -Y | grep ssh  | awk -F '"'"':'"'"' '"'"'{print \$7}'"'"`
   declare -a targets
   for i in $(seq 1 $HOST_COUNT)
   do
@@ -557,10 +559,9 @@ do
 done
 
 if [[ "$MON_DEPLOY" == "yes" ]]; then
-  echo -e "${Yellow} Setup Prometheus and Grafana for cluster monitoring... ${Color_Off}"
   for j in $(seq 1 $HOST_COUNT)
   do
-    k8s-exec gpfs-mgr$j "yum install -y sudo cronie"
+    k8s-exec gpfs-mgr$j "yum install -y sudo cronie > /dev/null 2>&1"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
     k8s-exec gpfs-mgr$j "/usr/sbin/crond"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
@@ -586,6 +587,8 @@ if [[ "$MON_DEPLOY" == "yes" ]]; then
     if [[ "$?" -ne 0 ]]; then exit 1; fi
     k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmces state show *\" >> /etc/sudoers.d/gpfs_exporter"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdf ${FS_NAME} -Y\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
     k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdf project -Y\" >> /etc/sudoers.d/gpfs_exporter"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
     k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdf scratch -Y\" >> /etc/sudoers.d/gpfs_exporter"
@@ -602,7 +605,7 @@ if [[ "$MON_DEPLOY" == "yes" ]]; then
     if [[ "$?" -ne 0 ]]; then exit 1; fi
     k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlsfileset ess -Y\" >> /etc/sudoers.d/gpfs_exporter"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
-    k8s-exec gpfs-mgr$j "curl -L \"https://github.com/treydock/gpfs_exporter/releases/download/v2.2.0/gpfs_exporter-2.2.0.linux-amd64.tar.gz\" -o gpfs_exporter-2.2.0.linux-amd64.tar.gz"
+    k8s-exec gpfs-mgr$j "curl -sL \"https://github.com/treydock/gpfs_exporter/releases/download/v2.2.0/gpfs_exporter-2.2.0.linux-amd64.tar.gz\" -o gpfs_exporter-2.2.0.linux-amd64.tar.gz"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
     k8s-exec gpfs-mgr$j "tar xf gpfs_exporter-2.2.0.linux-amd64.tar.gz && rm -f gpfs_exporter-2.2.0.linux-amd64.tar.gz"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
@@ -614,13 +617,15 @@ if [[ "$MON_DEPLOY" == "yes" ]]; then
     if [[ "$?" -ne 0 ]]; then exit 1; fi
     k8s-exec gpfs-mgr$j "crontab /var/spool/cron/mmdf"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
-    k8s-exec gpfs-mgr$j "curl \"https://raw.githubusercontent.com/treydock/gpfs_exporter/master/systemd/gpfs_exporter.service\" -o /etc/systemd/system/gpfs_exporter.service"
+    k8s-exec gpfs-mgr$j "curl -s \"https://raw.githubusercontent.com/treydock/gpfs_exporter/master/systemd/gpfs_exporter.service\" -o /etc/systemd/system/gpfs_exporter.service"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
-    k8s-exec gpfs-mgr$j "sed -i 's#ExecStart=/usr/local/bin/gpfs_exporter#ExecStart=/usr/local/bin/gpfs_exporter --collector.mmdf#g' /etc/systemd/system/gpfs_exporter.service"
+    k8s-exec gpfs-mgr$j "sed -i 's#ExecStart=/usr/local/bin/gpfs_exporter#ExecStart=/usr/local/bin/gpfs_exporter --collector.mmdf --collector.mmdf.filesystems '${FS_NAME}'#g' /etc/systemd/system/gpfs_exporter.service"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
     k8s-exec gpfs-mgr$j "systemctl daemon-reload && systemctl start gpfs_exporter"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
   done
+else
+  sleep 10
 fi
 
 if command -v oc &> /dev/null; then
