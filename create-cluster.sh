@@ -615,11 +615,9 @@ if [[ "$MON_DEPLOY" == "yes" ]]; then
     if [[ "$?" -ne 0 ]]; then exit 1; fi
     k8s-exec gpfs-mgr$j "echo \"/usr/local/bin/gpfs_mmdf_exporter --output /var/log/journal/gpfs_mmdf_exporter.service.log --collector.mmdf.filesystems ${FS_NAME}\" > /usr/local/bin/mmdf-cron.sh"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
-    k8s-exec gpfs-mgr$j "echo 'echo \"gpfs_fs_metadata_size_bytes{fs=\"${FS_NAME}\"} \$(/usr/lpp/mmfs/bin/mmlspool \${FS_NAME} | grep system | tail -1 | awk '\"'\"'{print \$$111}'\"'\"')\" >> /var/log/journal/gpfs_mmdf_exporter.service.log' >> /usr/local/bin/mmdf-cron.sh"
+    k8s-exec gpfs-mgr$j "echo 'echo \"gpfs_fs_metadata_size_bytes{fs=\\\"${FS_NAME}\\\"} \$(/usr/lpp/mmfs/bin/mmlspool '${FS_NAME}' | grep system | tail -1 | awk '\"'\"'{print \$$111}'\"'\"')\" >> /var/log/journal/gpfs_mmdf_exporter.service.log' >> /usr/local/bin/mmdf-cron.sh"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
-    k8s-exec gpfs-mgr$j 'echo "echo '"'"'gpfs_fs_metadata_size_bytes{fs=\"${FS_NAME}\"} $(/usr/lpp/mmfs/bin/mmlspool ${FS_NAME} | grep system | tail -1 | awk '"'"'{print $11}'"'"')'"'"' >> /var/log/journal/gpfs_mmdf_exporter.service.log" >> /usr/local/bin/mmdf-cron.sh'
-    if [[ "$?" -ne 0 ]]; then exit 1; fi
-    k8s-exec gpfs-mgr$j 'echo "echo '"'"'gpfs_fs_metadata_free_bytes{fs=\"${FS_NAME}\"} $(/usr/lpp/mmfs/bin/mmlspool ${FS_NAME} | grep system | tail -1 | awk '"'"'{print $12}'"'"')'"'"' >> /var/log/journal/gpfs_mmdf_exporter.service.log" >> /usr/local/bin/mmdf-cron.sh'
+    k8s-exec gpfs-mgr$j "echo 'echo \"gpfs_fs_metadata_free_bytes{fs=\\\"${FS_NAME}\\\"} \$(/usr/lpp/mmfs/bin/mmlspool '${FS_NAME}' | grep system | tail -1 | awk '\"'\"'{print \$$112}'\"'\"')\" >> /var/log/journal/gpfs_mmdf_exporter.service.log' >> /usr/local/bin/mmdf-cron.sh"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
     k8s-exec gpfs-mgr$j "chmod +x /usr/local/bin/mmdf-cron.sh"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
