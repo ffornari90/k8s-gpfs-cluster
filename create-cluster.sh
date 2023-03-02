@@ -278,23 +278,46 @@ done
 printf '\n'
 if [[ $NSD_COUNT -gt 0 ]]; then
   echo -e "${Yellow} NSD list: ${Color_Off}"
+  NSD_COUNTER=1
   for j in $(seq 1 $NSD_COUNT)
   do
     k=`expr $j - 1`
-    for i in $(seq 1 $DEVICE_COUNT)
-    do
-      DEVICE_INDEX=`expr $i - 1`
-      PARITY=`expr $j % 2`
-      [ $PARITY -eq 0 ] && FG="2" || FG="${PARITY}"
-      echo '   %nsd:
-        device='${DEVICE_ARRAY[$DEVICE_INDEX]}'
-        nsd=nsd'$j'
-        servers='"${HOST_ARRAY[$k]%%.*}-gpfs-mgr-${j}-0"'
-        usage=dataAndMetadata
-        failureGroup='$FG'
-        pool=system' | tee -a "nsd-configmap.yaml"
-      printf '\n' | tee -a "nsd-configmap.yaml"
-    done
+    DEV_PARITY=`expr $DEVICE_COUNT % 2`
+    if [[ $DEV_PARITY -eq 0 ]]; then
+      for i in $(seq 1 $DEVICE_COUNT)
+      do
+        DEVICE_INDEX=`expr $i - 1`
+        NSD_PARITY=`expr $j % 2`
+        DEVICE_PARITY=`expr $i % 2`
+        [ $NSD_PARITY -eq 0 ] && FG="2" || FG="${NSD_PARITY}"
+        [ $DEVICE_PARITY -eq 0 ] && US="metadataOnly" || US="dataOnly"
+        echo '   %nsd:
+          device='${DEVICE_ARRAY[$DEVICE_INDEX]}'
+          nsd=nsd'$NSD_COUNTER'
+          servers='"${HOST_ARRAY[$k]%%.*}-gpfs-mgr-${j}-0"'
+          usage='$US'
+          failureGroup='$FG'
+          pool=system' | tee -a "nsd-configmap.yaml"
+        printf '\n' | tee -a "nsd-configmap.yaml"
+        NSD_COUNTER=$((NSD_COUNTER+1))
+      done
+    else
+      for i in $(seq 1 $DEVICE_COUNT)
+      do
+        DEVICE_INDEX=`expr $i - 1`
+        PARITY=`expr $j % 2`
+        [ $PARITY -eq 0 ] && FG="2" || FG="${PARITY}"
+        echo '   %nsd:
+          device='${DEVICE_ARRAY[$DEVICE_INDEX]}'
+          nsd=nsd'$NSD_COUNTER'
+          servers='"${HOST_ARRAY[$k]%%.*}-gpfs-mgr-${j}-0"'
+          usage=dataAndMetadata
+          failureGroup='$FG'
+          pool=system' | tee -a "nsd-configmap.yaml"
+        printf '\n' | tee -a "nsd-configmap.yaml"
+        NSD_COUNTER=$((NSD_COUNTER+1))
+      done
+    fi
   done
   cp "$TEMPLATES_DIR/nsd-patch.template.yaml" "nsd-patch.yaml"
   sed -i "s/%%%PODNAME%%%/${HOST_ARRAY[0]%%.*}-gpfs-mgr-1/g" "nsd-patch.yaml"
@@ -517,7 +540,7 @@ fi
 
 if ! [ -z "$FS_NAME" ]; then
     echo -e "${Yellow} Create GPFS file system on previously created NSDs... ${Color_Off}"
-    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmcrfs ${FS_NAME} -F /tmp/StanzaFile -A no -B 4M -m 1 -M 2 -n 100 -Q yes -j scatter -k nfs4 -r 2 -R 2 -T /ibm/${FS_NAME}"
+    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmcrfs ${FS_NAME} -F /tmp/StanzaFile -A no -B 4M -m 2 -M 2 -n 100 -Q yes -j scatter -k nfs4 -r 2 -R 2 -T /ibm/${FS_NAME}"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
 
     echo -e "${Yellow} Mount GPFS file system on every manager... ${Color_Off}"
@@ -614,10 +637,6 @@ if [[ "$MON_DEPLOY" == "yes" ]]; then
     k8s-exec gpfs-mgr$j "cp gpfs_exporter-2.2.0.linux-amd64/gpfs_* /usr/local/bin/"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
     k8s-exec gpfs-mgr$j "echo \"/usr/local/bin/gpfs_mmdf_exporter --output /var/log/journal/gpfs_mmdf_exporter.service.log --collector.mmdf.filesystems ${FS_NAME}\" > /usr/local/bin/mmdf-cron.sh"
-    if [[ "$?" -ne 0 ]]; then exit 1; fi
-    k8s-exec gpfs-mgr$j "echo 'echo \"gpfs_fs_metadata_size_bytes{fs=\\\"${FS_NAME}\\\"} \$(/usr/lpp/mmfs/bin/mmlspool '${FS_NAME}' | grep system | tail -1 | awk '\"'\"'{print \$$111}'\"'\"')\" >> /var/log/journal/gpfs_mmdf_exporter.service.log' >> /usr/local/bin/mmdf-cron.sh"
-    if [[ "$?" -ne 0 ]]; then exit 1; fi
-    k8s-exec gpfs-mgr$j "echo 'echo \"gpfs_fs_metadata_free_bytes{fs=\\\"${FS_NAME}\\\"} \$(/usr/lpp/mmfs/bin/mmlspool '${FS_NAME}' | grep system | tail -1 | awk '\"'\"'{print \$$112}'\"'\"')\" >> /var/log/journal/gpfs_mmdf_exporter.service.log' >> /usr/local/bin/mmdf-cron.sh"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
     k8s-exec gpfs-mgr$j "chmod +x /usr/local/bin/mmdf-cron.sh"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
