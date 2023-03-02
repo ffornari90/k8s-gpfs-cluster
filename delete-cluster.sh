@@ -32,9 +32,13 @@ do
     ssh $HOST_NAME -l centos "sudo su - -c \"rm -rf /root/cli*\""
   fi
 done
-GUI_FILE="./gpfs-instance-$namespace/gui-svc.yaml"
-if [ -f "$GUI_FILE" ]; then
-  helm uninstall gpfs  
+GRAFANA_FILE="./gpfs-instance-$namespace/grafana.yaml"
+if [ -f "$GRAFANA_FILE" ]; then
+  helm uninstall gpfs
+  helm uninstall prometheus
+  helm uninstall grafana
+  kubectl delete -f "./gpfs-instance-$namespace/prometheus-server-pvc.yaml"
+  kubectl delete -f "./gpfs-instance-$namespace/grafana-server-pvc.yaml"
 fi
 kubectl delete ns $namespace
 rm -rf "./gpfs-instance-$namespace"

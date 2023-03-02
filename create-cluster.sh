@@ -16,7 +16,7 @@ White='\033[0;37m'        # White
 # **************************************************************************** #
 
 function usage () {
-    echo "Usage: $0 [-N <k8s_namespace>] [-H <worker_list>] [-C <cluster_name>] [-b <cc_image_repo>] [-i <cc_image_tag>] [-q <quorum_count>] [-n <nsd_list>] [-d <nsd_devices>] [-f <fs_name>] [-g <gui_list>] [-t <timeout>] [-v <gpfs_version>]"
+    echo "Usage: $0 [-N <k8s_namespace>] [-H <worker_list>] [-C <cluster_name>] [-b <cc_image_repo>] [-i <cc_image_tag>] [-q <quorum_count>] [-n <nsd_list>] [-d <nsd_devices>] [-f <fs_name>] [-g <yes_or_no>] [-t <timeout>] [-v <gpfs_version>]"
     echo
     echo "-N    Specify desired kubernetes Namespace on which the cluster will live (default is 'ns\$(date +%s)')"
     echo "      It must be a compliant DNS-1123 label and match =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
@@ -29,7 +29,7 @@ function usage () {
     echo "-n    Specify desired list of Network Shared Disks worker nodes (comma separated, e.g.: worker001,worker002)"
     echo "-d    Specify desired list of devices for NSD nodes (comma separated, e.g.: /dev/sda,/dev/sdb)"
     echo "-f    Specify desired GPFS file system name (mountpoint is /ibm/<fs_name>)"
-    echo "-g    Specify desired list of GUI worker nodes (comma separated, e.g.: worker001,worker002)"
+    echo "-g    Specify if monitoring with Prometheus and Grafana has to be deployed (default is no)"
     echo "-t    Specify desired timeout for Pods creation in seconds (default is 3600)"
     echo "-v    Specify desired GPFS version for cluster creation (default is 5.1.2-8)"
     echo
@@ -93,12 +93,11 @@ CC_IMAGE_REPO="ffornari/gpfs-mgr"
 CC_IMAGE_TAG="centos7"
 HOST_LIST=""
 NSD_LIST=""
-GUI_LIST=""
 DEVICE_LIST=""
 FS_NAME=""
 HOST_COUNT=1
 NSD_COUNT=0
-GUI_COUNT=0
+MON_DEPLOY="no"
 QRM_COUNT=1
 TIMEOUT=3600
 VERSION=5.1.2-8
@@ -172,15 +171,8 @@ while getopts 'N:C:H:b:i:q:n:d:f:g:t:v:h' opt; do
                 else echo "! Wrong arg -$opt"; exit 1
             fi ;;
         g) 
-            num_commas=$(echo "${OPTARG}" | tr -cd ',' | wc -c)
-            if [[ $num_commas -lt $WORKER_COUNT ]]; then
-                if grep -q -P '^([[:alnum:]]+\.)*[[:alnum:]]+([,]([[:alnum:]]+\.)*[[:alnum:]]+)*$' <<< $OPTARG; then
-                    IFS=', ' read -r -a GUI_ARRAY <<< "${OPTARG}"
-                    GUI_COUNT="${#GUI_ARRAY[@]}"
-                    GUI_LIST="${OPTARG}"
-                else
-                    echo "! Wrong arg -$opt"; exit 1
-                fi
+            if grep -q -P '^(yes|no)$' <<< $OPTARG; then
+                MON_DEPLOY="${OPTARG}"
             else
                 echo "! Wrong arg -$opt"; exit 1
             fi ;;
@@ -214,10 +206,9 @@ echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "HOST_COUNT=$HOST_COUNT"
 echo "QRM_COUNT=$QRM_COUNT"
 echo "NSD_COUNT=$NSD_COUNT"
-echo "GUI_COUNT=$GUI_COUNT"
 echo "HOST_LIST=$HOST_LIST"
 echo "NSD_LIST=$NSD_LIST"
-echo "GUI_LIST=$GUI_LIST"
+echo "MON_DEPLOY=$MON_DEPLOY"
 echo "DEVICE_LIST=$DEVICE_LIST"
 echo "FS_NAME=$FS_NAME"
 echo "TIMEOUT=$TIMEOUT"
@@ -251,13 +242,18 @@ if [[ $NSD_COUNT -gt 0 ]]; then
   sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "nsd-configmap.yaml"
 fi
 
-if [[ $GUI_COUNT -gt 0 ]]; then
-  cp "$TEMPLATES_DIR/gui-svc.template.yaml" "gui-svc.yaml"
-  sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "gui-svc.yaml"
-  cp "$TEMPLATES_DIR/gui-ingress.template.yaml" "gui-ingress.yaml"
-  sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "gui-ingress.yaml"
+if [[ "$MON_DEPLOY" == "yes" ]]; then
+  PASSWORD=$(openssl rand -base64 12)
   MASTER_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+  cp "$TEMPLATES_DIR/prometheus-server-pvc.yaml" "prometheus-server-pvc.yaml"
+  cp "$TEMPLATES_DIR/grafana-server-pvc.yaml" "grafana-server-pvc.yaml"
+  cp "$TEMPLATES_DIR/prometheus.values.yaml" "prometheus.yaml"
+  cp "$TEMPLATES_DIR/grafana.values.yaml" "grafana.yaml"
+  cp "$TEMPLATES_DIR/prometheus-ingress.yaml" "prometheus-ingress.yaml"
+  cp "$TEMPLATES_DIR/grafana-ingress.yaml" "grafana-ingress.yaml"
+  cp "$TEMPLATES_DIR/grafana-admin-secret.template.yaml" "grafana-admin-secret.yaml"
   cp "$TEMPLATES_DIR/nginx-ingress.template.yaml" "nginx-ingress.yaml"
+  sed -i "s/%%%PASSWORD%%%/${PASSWORD}/g" "grafana-admin-secret.yaml"
   sed -i "s/%%%FIP%%%/${MASTER_IP}/g" "nginx-ingress.yaml"
 fi
 
@@ -265,32 +261,6 @@ fi
 gen_role mgr $HOST_COUNT
 
 printf '\n'
-for i in $(seq 1 $GUI_COUNT)
-do
-  k=`expr $i - 1`
-  for j in $(seq 1 $HOST_COUNT)
-  do
-    l=`expr $j - 1`
-    if [[ "${GUI_ARRAY[$k]%%.*}" == "${HOST_ARRAY[$l]%%.*}" ]]; then
-      PATTERN="role: gpfs-mgr"
-      LINE1="    svc: gpfs-gui" 
-      LINE2="      svc: gpfs-gui" 
-      LINE3="        svc: gpfs-gui" 
-      FILENAME="gpfs-mgr${j}.yaml"
-      awk "/$PATTERN/{c++;if(c==1){print;print \"$LINE1\";next}}1" "$FILENAME" > "$FILENAME.tmp"
-      mv "$FILENAME.tmp" "$FILENAME"
-      rm -f "$FILENAME.tmp"
-      awk "/$PATTERN/{c++;if(c==2){print;print \"$LINE2\";next}}1" "$FILENAME" > "$FILENAME.tmp"
-      mv "$FILENAME.tmp" "$FILENAME"
-      rm -f "$FILENAME.tmp"
-      awk "/$PATTERN/{c++;if(c==3){print;print \"$LINE3\";next}}1" "$FILENAME" > "$FILENAME.tmp"
-      mv "$FILENAME.tmp" "$FILENAME"
-      rm -f "$FILENAME.tmp"
-      break
-    fi
-  done
-done
-
 echo -e "${Yellow} Node list: ${Color_Off}"
 for i in $(seq 1 $HOST_COUNT)
 do
@@ -366,12 +336,11 @@ do
   kubectl apply -f "mgr-svc${i}.yaml"
 done
 
-if [[ $GUI_COUNT -gt 0 ]]; then
+if [[ "$MON_DEPLOY" == "yes" ]]; then
   helm install gpfs nginx-stable/nginx-ingress --values "nginx-ingress.yaml"
-  openssl req -newkey rsa:2048 -nodes -x509 -days 1825 -keyout self-signed.key.pem -out self-signed.cert.pem -subj '/CN=k8s-gpfs-gui.novalocal'
-  kubectl create secret tls gui-cert --cert=self-signed.cert.pem --key=self-signed.key.pem -n $NAMESPACE
-  kubectl apply -f "gui-svc.yaml"
-  kubectl apply -f "gui-ingress.yaml"
+  openssl req -newkey rsa:2048 -nodes -x509 -days 1825 -keyout self-signed.key.pem -out self-signed.cert.pem -subj '/CN=k8s-gpfs-grafana.novalocal'
+  kubectl create secret tls grafana-cert --cert=self-signed.cert.pem --key=self-signed.key.pem -n default
+  kubectl apply -f "grafana-admin-secret.yaml"
 fi
 
 # Conditionally split the pod creation in groups, since apparently the external provisioner (manila?) can't deal with too many volume-creation request per second
@@ -470,6 +439,43 @@ echo -e "${Yellow} Check GPFS cluster configuration... ${Color_Off}"
 k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmlscluster"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
+if [[ "$MON_DEPLOY" == "yes" ]]; then
+  CLUSTER_NAME=$(k8s-exec gpfs-mgr1 '/usr/lpp/mmfs/bin/mmlscluster -Y | grep ssh | awk '"'"'{print \$7}'"'")
+  declare -a targets
+  for i in $(seq 1 $HOST_COUNT)
+  do
+    targets+=("gpfs-mgr${i}")
+  done
+  PATTERN="        target_label: host"
+  TARGETS=""
+  suffix=".%%%NAMESPACE%%%.svc.cluster.local:9303"
+  for item in "${targets[@]}"
+  do
+    TARGETS+="$(printf '\\t- %s%s\\n' ${item} ${suffix})"
+  done
+  LINE="    static_configs:\n\
+      - targets:\n\
+$(echo ${TARGETS})\
+        labels:\n\
+          cluster: %%%CLUSTER_NAME%%%\n\
+          environment: test\n\
+          role: compute"
+  awk "/$PATTERN/{c++;if(c==1){print;print \"$LINE\";next}}1" "prometheus.yaml" > "prometheus.yaml.tmp"
+  mv "prometheus.yaml.tmp" "prometheus.yaml"
+  rm -f "prometheus.yaml.tmp"
+  expand -t 8 "prometheus.yaml" > "prometheus.yaml.tmp"
+  mv "prometheus.yaml.tmp" "prometheus.yaml"
+  rm -f "prometheus.yaml.tmp"
+  sed -i "s/%%%CLUSTER_NAME%%%/${CLUSTER_NAME}/g" "prometheus.yaml"
+  sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "prometheus.yaml"
+  kubectl apply -f "prometheus-server-pvc.yaml"
+  helm install -f "prometheus.yaml" prometheus prometheus-community/prometheus
+  kubectl apply -f "prometheus-ingress.yaml"
+  kubectl apply -f "grafana-server-pvc.yaml"
+  helm install -f "grafana.yaml" grafana grafana/grafana
+  kubectl apply -f "grafana-ingress.yaml"
+fi
+
 echo -e "${Yellow} Start GPFS daemon on every manager... ${Color_Off}"
 failure=0; pids="";
 for i in $(seq 1 $HOST_COUNT); do
@@ -509,7 +515,7 @@ fi
 
 if ! [ -z "$FS_NAME" ]; then
     echo -e "${Yellow} Create GPFS file system on previously created NSDs... ${Color_Off}"
-    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmcrfs ${FS_NAME} -F /tmp/StanzaFile -A no -B 4M -m 1 -M 2 -n 100 -Q no -j scatter -k nfs4 -r 2 -R 2 -T /ibm/${FS_NAME}"
+    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmcrfs ${FS_NAME} -F /tmp/StanzaFile -A no -B 4M -m 1 -M 2 -n 100 -Q yes -j scatter -k nfs4 -r 2 -R 2 -T /ibm/${FS_NAME}"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
 
     echo -e "${Yellow} Mount GPFS file system on every manager... ${Color_Off}"
@@ -550,55 +556,70 @@ do
   if [[ "$?" -ne 0 ]]; then exit 1; fi
 done
 
-if [[ $GUI_COUNT -gt 0 ]]; then
-  echo -e "${Yellow} Setup GUI on selected manager nodes... ${Color_Off}"
-  for i in $(seq 1 $GUI_COUNT)
+if [[ "$MON_DEPLOY" == "yes" ]]; then
+  echo -e "${Yellow} Setup Prometheus and Grafana for cluster monitoring... ${Color_Off}"
+  for j in $(seq 1 $HOST_COUNT)
   do
-    k=`expr $i - 1`
-    for j in $(seq 1 $HOST_COUNT)
-    do
-      l=`expr $j - 1`
-      if [[ "${GUI_ARRAY[$k]%%.*}" == "${HOST_ARRAY[$l]%%.*}" ]]; then
-        k8s-exec gpfs-mgr$j "yum install -y python-requests gpfs.java gpfs.gui"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "echo 'Defaults secure_path=\"/usr/lpp/mmfs/gui/bin-sudo:/usr/lpp/mmfs/bin:/bin:/usr/bin:/sbin:/usr/sbin\"' > /etc/sudoers.d/secure_path"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "sed -i 's/\s\+md5\s\+/         trust /g' /usr/lpp/mmfs/gui/bin-sudo/check4pgsql"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "sed -i 's/User=scalemgmt/User=root/g' /usr/lib/systemd/system/gpfsgui.service"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "systemctl start gpfsgui"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        sleep 10
-        k8s-exec gpfs-mgr$j "systemctl stop gpfsgui"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "echo 'export PATH=\"/usr/lpp/mmfs/gui/bin-sudo:/usr/lpp/mmfs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"' >> /etc/profile"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "sed -i 's/su scalemgmt -s //g' /usr/lpp/mmfs/gui/bin-sudo/check4sudoers"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "setcap cap_sys_chroot,cap_setuid,cap_setgid+ep /bin/python3.6"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "setcap cap_net_admin,cap_net_raw+ep /sbin/xtables-multi"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -R /var/log"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -R /etc/sysconfig"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -R /opt"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx -R /usr/lpp"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "setfacl -m u:scalemgmt:rwx /root/.pgpass"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "chmod 701 /root"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "sed -i 's/User=root/User=scalemgmt/g' /usr/lib/systemd/system/gpfsgui.service"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        k8s-exec gpfs-mgr$j "systemctl start gpfsgui"
-        if [[ "$?" -ne 0 ]]; then exit 1; fi
-        break
-      fi
-    done
+    k8s-exec gpfs-mgr$j "yum install -y sudo cronie"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "/usr/sbin/crond"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "touch /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"Defaults:gpfs_exporter !syslog\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"Defaults:gpfs_exporter !requiretty\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmgetstate -Y\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmpmon -s -p\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdiag --config -Y\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmhealth node show -Y\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmfsadm test verbs status\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlsfs all -Y -T\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdiag --waiters -Y\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmces state show *\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdf project -Y\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdf scratch -Y\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmrepquota -j -Y -a\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmrepquota -j -Y project scratch\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlssnapshot project -s all -Y\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlssnapshot ess -s all -Y\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlsfileset project -Y\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlsfileset ess -Y\" >> /etc/sudoers.d/gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "curl -L \"https://github.com/treydock/gpfs_exporter/releases/download/v2.2.0/gpfs_exporter-2.2.0.linux-amd64.tar.gz\" -o gpfs_exporter-2.2.0.linux-amd64.tar.gz"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "tar xf gpfs_exporter-2.2.0.linux-amd64.tar.gz && rm -f gpfs_exporter-2.2.0.linux-amd64.tar.gz"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "groupadd -r gpfs_exporter && useradd -r -d /var/lib/gpfs_exporter -s /sbin/nologin -M -g gpfs_exporter -M gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "cp gpfs_exporter-2.2.0.linux-amd64/gpfs_* /usr/local/bin/"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "echo \"*/2 * * * * /usr/local/bin/gpfs_mmdf_exporter --output /var/log/journal/gpfs_mmdf_exporter.service.log --collector.mmdf.filesystems ${FS_NAME}\" > /var/spool/cron/mmdf"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "crontab /var/spool/cron/mmdf"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "curl \"https://raw.githubusercontent.com/treydock/gpfs_exporter/master/systemd/gpfs_exporter.service\" -o /etc/systemd/system/gpfs_exporter.service"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "sed -i 's#ExecStart=/usr/local/bin/gpfs_exporter#ExecStart=/usr/local/bin/gpfs_exporter --collector.mmdf#g' /etc/systemd/system/gpfs_exporter.service"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
+    k8s-exec gpfs-mgr$j "systemctl daemon-reload && systemctl start gpfs_exporter"
+    if [[ "$?" -ne 0 ]]; then exit 1; fi
   done
 fi
 
@@ -620,10 +641,9 @@ echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "HOST_COUNT=$HOST_COUNT"
 echo "QRM_COUNT=$QRM_COUNT"
 echo "NSD_COUNT=$NSD_COUNT"
-echo "GUI_COUNT=$GUI_COUNT"
+echo "MON_DEPLOY=$MON_DEPLOY"
 echo "HOST_LIST=$HOST_LIST"
 echo "NSD_LIST=$NSD_LIST"
-echo "GUI_LIST=$GUI_LIST"
 echo "DEVICE_LIST=$DEVICE_LIST"
 echo "FS_NAME=$FS_NAME"
 echo "TIMEOUT=$TIMEOUT"
