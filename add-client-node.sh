@@ -47,8 +47,7 @@ function gen_role () {
     sed -i "s/%%%NUMBER%%%/${index}/g" "gpfs-${role}${index}.yaml"
     sed -i "s|%%%IMAGE_REPO%%%|${image_repo}|g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%IMAGE_TAG%%%/${image_tag}/g" "gpfs-${role}${index}.yaml"
-    #workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -o=jsonpath='{range .items[1:]}{.metadata.name}{"\n"}{end}'`)
-    workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
+    workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -o=jsonpath='{range .items[1:]}{.metadata.name}{"\n"}{end}'`)
     RANDOM=$$$(date +%s)
     selected_worker=${workers[ $RANDOM % ${#workers[@]} ]}
     sed -i "s/%%%NODENAME%%%/${selected_worker}/g" "gpfs-${role}${index}.yaml"
@@ -152,7 +151,7 @@ sed -i "s/%%%NUMBER%%%/${index}/g" "cli-svc${index}.yaml"
 # **********************************************************************************************
 
 shopt -s nullglob # The shopt -s nullglob will make the glob expand to nothing if there are no matches.
-roles_yaml=("gpfs-cli*.yaml")
+roles_yaml=("gpfs-*.yaml")
 
 # Instantiate the services
 kubectl apply -f "cli-svc${index}.yaml"
@@ -327,7 +326,7 @@ if [[ "$?" -ne 0 ]]; then exit 1; fi
 PROMETHEUS_FILE="prometheus.yaml"
 if [ -f "$PROMETHEUS_FILE" ]; then
   echo -e "${Yellow} Setup Prometheus and Grafana monitoring for client node... ${Color_Off}"
-  FS_NAME=$(k8s-exec gpfs-cli$index "/usr/lpp/mmfs/bin/mmlsfs all_local -T -Y | grep ibm | awk -F'%2F' '{print $3}' | sed 's/://g'")
+  FS_NAME=$(k8s-exec gpfs-cli$index '/usr/lpp/mmfs/bin/mmlsfs all_local -T -Y | grep ibm | awk -F"%2F" '"'"{print \$3}'"'"' | sed "s/://g"') 
   k8s-exec gpfs-cli$index "yum install -y sudo cronie > /dev/null 2>&1"
   if [[ "$?" -ne 0 ]]; then exit 1; fi
   k8s-exec gpfs-cli$index "/usr/sbin/crond"
