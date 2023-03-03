@@ -13,6 +13,7 @@ if ! [[ `rpm -qa | grep wget` ]]; then
     sudo yum install -y wget
 fi
 wget -r --no-parent --reject="index.html*" "${OS_SERVER_URL}"
+kubectl label node master001 kubernetes.io/role=ingress
 workers=(`kubectl get nodes | grep worker | awk '{print $1}'`)
 for worker in ${workers[@]}
 do
