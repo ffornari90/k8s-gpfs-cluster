@@ -47,7 +47,8 @@ function gen_role () {
     sed -i "s/%%%NUMBER%%%/${index}/g" "gpfs-${role}${index}.yaml"
     sed -i "s|%%%IMAGE_REPO%%%|${image_repo}|g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%IMAGE_TAG%%%/${image_tag}/g" "gpfs-${role}${index}.yaml"
-    workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -o=jsonpath='{range .items[1:]}{.metadata.name}{"\n"}{end}'`)
+    #workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -o=jsonpath='{range .items[1:]}{.metadata.name}{"\n"}{end}'`)
+    workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
     RANDOM=$$$(date +%s)
     selected_worker=${workers[ $RANDOM % ${#workers[@]} ]}
     sed -i "s/%%%NODENAME%%%/${selected_worker}/g" "gpfs-${role}${index}.yaml"
@@ -389,7 +390,7 @@ if [ -f "$PROMETHEUS_FILE" ]; then
   if [[ "$?" -ne 0 ]]; then exit 1; fi
   sed -i '/        - gpfs-mgr1.'$NAMESPACE'.svc.cluster.local:9303/{i\        - gpfs-cli'$index'.'$NAMESPACE'.svc.cluster.local:9093
 }' $PROMETHEUS_FILE
-  helm upgrade -f $PROMETHEUS_FILE prometheus
+  helm upgrade -f $PROMETHEUS_FILE prometheus prometheus-community/prometheus
 else
   sleep 10
 fi
