@@ -47,7 +47,7 @@ function gen_role () {
     sed -i "s/%%%NUMBER%%%/${index}/g" "gpfs-${role}${index}.yaml"
     sed -i "s|%%%IMAGE_REPO%%%|${image_repo}|g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%IMAGE_TAG%%%/${image_tag}/g" "gpfs-${role}${index}.yaml"
-    workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
+    workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -o=jsonpath='{range .items[1:]}{.metadata.name}{"\n"}{end}'`)
     RANDOM=$$$(date +%s)
     selected_worker=${workers[ $RANDOM % ${#workers[@]} ]}
     sed -i "s/%%%NODENAME%%%/${selected_worker}/g" "gpfs-${role}${index}.yaml"
@@ -144,7 +144,7 @@ printf '\n'
 # Generate the services
 cp "$TEMPLATES_DIR/gpfs-cli-svc.template.yaml" "cli-svc${index}.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "cli-svc${index}.yaml"
-sed -i "s/%%%NUMBER%%%/${i}/g" "cli-svc${index}.yaml"
+sed -i "s/%%%NUMBER%%%/${index}/g" "cli-svc${index}.yaml"
 
 # **********************************************************************************************
 # Deploy the instance #
@@ -189,7 +189,6 @@ for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
         sleep 1
         ((count+=1))
     done
-
 done
 
 if [[ $count -le $TIMEOUT ]] ; then
@@ -318,7 +317,83 @@ if [[ "$?" -ne 0 ]]; then exit 1; fi
 k8s-exec gpfs-cli$index "systemctl start pmcollector"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
-sleep 10
+PROMETHEUS_FILE="prometheus.yaml"
+if [ -f "$PROMETHEUS_FILE" ]; then
+  echo -e "${Yellow} Setup Prometheus and Grafana monitoring for client node... ${Color_Off}"
+  FS_NAME=$(k8s-exec gpfs-cli$index "/usr/lpp/mmfs/bin/mmlsfs all_local -T -Y | grep ibm | awk -F'%2F' '{print $3}' | sed 's/://g'")
+  k8s-exec gpfs-cli$index "yum install -y sudo cronie > /dev/null 2>&1"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "/usr/sbin/crond"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "touch /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"Defaults:gpfs_exporter !syslog\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"Defaults:gpfs_exporter !requiretty\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmgetstate -Y\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmpmon -s -p\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdiag --config -Y\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmhealth node show -Y\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmfsadm test verbs status\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlsfs all -Y -T\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdiag --waiters -Y\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmces state show *\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdf ${FS_NAME} -Y\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdf project -Y\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdf scratch -Y\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmrepquota -j -Y -a\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmrepquota -j -Y project scratch\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlssnapshot project -s all -Y\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlssnapshot ess -s all -Y\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlsfileset project -Y\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlsfileset ess -Y\" >> /etc/sudoers.d/gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "curl -sL \"https://github.com/treydock/gpfs_exporter/releases/download/v2.2.0/gpfs_exporter-2.2.0.linux-amd64.tar.gz\" -o gpfs_exporter-2.2.0.linux-amd64.tar.gz"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "tar xf gpfs_exporter-2.2.0.linux-amd64.tar.gz && rm -f gpfs_exporter-2.2.0.linux-amd64.tar.gz"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "groupadd -r gpfs_exporter && useradd -r -d /var/lib/gpfs_exporter -s /sbin/nologin -M -g gpfs_exporter -M gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "cp gpfs_exporter-2.2.0.linux-amd64/gpfs_* /usr/local/bin/"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"/usr/local/bin/gpfs_mmdf_exporter --output /var/log/journal/gpfs_mmdf_exporter.service.log --collector.mmdf.filesystems ${FS_NAME}\" > /usr/local/bin/mmdf-cron.sh"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "chmod +x /usr/local/bin/mmdf-cron.sh"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "echo \"*/2 * * * * /usr/local/bin/mmdf-cron.sh\" > /var/spool/cron/mmdf"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "crontab /var/spool/cron/mmdf"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "curl -s \"https://raw.githubusercontent.com/treydock/gpfs_exporter/master/systemd/gpfs_exporter.service\" -o /etc/systemd/system/gpfs_exporter.service"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "sed -i 's#ExecStart=/usr/local/bin/gpfs_exporter#ExecStart=/usr/local/bin/gpfs_exporter --collector.mmdf --collector.mmdf.filesystems '${FS_NAME}'#g' /etc/systemd/system/gpfs_exporter.service"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  k8s-exec gpfs-cli$index "systemctl daemon-reload && systemctl start gpfs_exporter"
+  if [[ "$?" -ne 0 ]]; then exit 1; fi
+  sed -i '/        - gpfs-mgr1.'$NAMESPACE'.svc.cluster.local:9303/{i\        - gpfs-cli'$index'.'$NAMESPACE'.svc.cluster.local:9093
+}' $PROMETHEUS_FILE
+  helm upgrade -f $PROMETHEUS_FILE prometheus
+else
+  sleep 10
+fi
+
 if command -v oc &> /dev/null; then
   oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po -lapp=gpfs-mgr1 -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
 else
