@@ -249,6 +249,12 @@ do
   ssh "${mgr_hosts[$j]}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
 done
 
+for pod in ${cli_pods[@]}
+do
+  kubectl -n $NAMESPACE exec -it $pod -- bash -c "ssh -o \"StrictHostKeyChecking=no\" $POD_NAME hostname"
+  kubectl -n $NAMESPACE exec -it $POD_NAME -- bash -c "ssh -o \"StrictHostKeyChecking=no\" $pod hostname"
+done
+
 for pod in ${mgr_pods[@]}
 do
   kubectl -n $NAMESPACE exec -it $pod -- bash -c "ssh -o \"StrictHostKeyChecking=no\" $POD_NAME hostname"
