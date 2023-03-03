@@ -21,7 +21,6 @@ OFFSET=`expr $CLI_INDEX + 1`
 CLI_NAME=${clis[$CLI_INDEX]}
 HOST_NAME=${cli_hosts[$CLI_INDEX]}
 kubectl -n $namespace exec $CLI_NAME -- /usr/lpp/mmfs/bin/mmumount all -a
-kubectl -n $namespace exec $CLI_NAME -- /usr/lpp/mmfs/bin/mmshutdown
 kubectl -n $namespace exec $MGR_NAME -- /usr/lpp/mmfs/bin/mmdelnode -N $CLI_NAME
 kubectl delete -f "./gpfs-instance-$namespace/gpfs-cli${OFFSET}.yaml"
 kubectl delete -f "./gpfs-instance-$namespace/cli-svc${OFFSET}.yaml"
