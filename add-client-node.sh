@@ -121,7 +121,6 @@ shift $((OPTIND-1))
 echo "NAMESPACE=$NAMESPACE"
 echo "CC_IMAGE_REPO=$CC_IMAGE_REPO"
 echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
-echo "HOST_COUNT=$HOST_COUNT"
 echo "TIMEOUT=$TIMEOUT"
 echo "VERSION=$VERSION"
 
@@ -230,6 +229,7 @@ echo -e "${Yellow} Distribute SSH keys on all the Pods... ${Color_Off}"
 
 mgr_hosts=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-mgr -ojsonpath="{.items[*].spec.nodeName}"`)
 mgr_pods=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-mgr -ojsonpath="{.items[*].metadata.name}"`)
+cli_pods=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-cli -ojsonpath="{.items[*].metadata.name}"`)
 
 for i in $(seq 1 ${#mgr_pods[@]})
 do
@@ -237,16 +237,22 @@ do
   ssh "${HOST_NAME}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${mgr_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
 done
 
+for i in $(seq 1 ${#cli_pods[@]})
+do
+  j=`expr $i - 1`
+  ssh "${HOST_NAME}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${cli_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
+done
+
 for i in $(seq 1 ${#mgr_hosts[@]})
 do
   j=`expr $i - 1`
-  ssh "${mgr_hosts[$k]}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
+  ssh "${mgr_hosts[$j]}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
 done
 
-for pod1 in ${mgr_pods[@]}
+for pod in ${mgr_pods[@]}
 do
-  kubectl -n $NAMESPACE exec -it $pod1 -- bash -c "ssh -o \"StrictHostKeyChecking=no\" $POD_NAME hostname"
-  kubectl -n $NAMESPACE exec -it $POD_NAME -- bash -c "ssh -o \"StrictHostKeyChecking=no\" $pod1 hostname"
+  kubectl -n $NAMESPACE exec -it $pod -- bash -c "ssh -o \"StrictHostKeyChecking=no\" $POD_NAME hostname"
+  kubectl -n $NAMESPACE exec -it $POD_NAME -- bash -c "ssh -o \"StrictHostKeyChecking=no\" $pod hostname"
 done
 
 echo -e "${Yellow} Add GPFS node to the cluster from quorum-manager... ${Color_Off}"
@@ -327,6 +333,5 @@ echo ""
 echo "NAMESPACE=$NAMESPACE"
 echo "CC_IMAGE_REPO=$CC_IMAGE_REPO"
 echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
-echo "HOST_COUNT=$HOST_COUNT"
 echo "TIMEOUT=$TIMEOUT"
 echo "VERSION=$VERSION"
