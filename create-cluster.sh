@@ -253,7 +253,7 @@ if [[ "$MON_DEPLOY" == "yes" ]]; then
   cp "$TEMPLATES_DIR/grafana-ingress.yaml" "grafana-ingress.yaml"
   cp "$TEMPLATES_DIR/grafana-admin-secret.template.yaml" "grafana-admin-secret.yaml"
   cp "$TEMPLATES_DIR/nginx-ingress.template.yaml" "nginx-ingress.yaml"
-  sed -i "s/%%%PASSWORD%%%/${PASSWORD}/g" "grafana-admin-secret.yaml"
+  sed -i "s/%%%PASSWORD%%%/\"${PASSWORD}\"/g" "grafana-admin-secret.yaml"
   sed -i "s/%%%FS_NAME%%%/${FS_NAME}/g" "grafana.yaml"
   sed -i "s/%%%FIP%%%/${MASTER_IP}/g" "nginx-ingress.yaml"
 fi
