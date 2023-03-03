@@ -243,7 +243,7 @@ if [[ $NSD_COUNT -gt 0 ]]; then
 fi
 
 if [[ "$MON_DEPLOY" == "yes" ]]; then
-  PASSWORD=$(openssl rand -base64 12)
+  PASSWORD=$(openssl rand -base64 20 | tr -dc 'a-zA-Z0-9' | fold -w 16 | head -n 1)
   MASTER_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
   cp "$TEMPLATES_DIR/prometheus-server-pvc.yaml" "prometheus-server-pvc.yaml"
   cp "$TEMPLATES_DIR/grafana-server-pvc.yaml" "grafana-server-pvc.yaml"
@@ -253,7 +253,7 @@ if [[ "$MON_DEPLOY" == "yes" ]]; then
   cp "$TEMPLATES_DIR/grafana-ingress.yaml" "grafana-ingress.yaml"
   cp "$TEMPLATES_DIR/grafana-admin-secret.template.yaml" "grafana-admin-secret.yaml"
   cp "$TEMPLATES_DIR/nginx-ingress.template.yaml" "nginx-ingress.yaml"
-  sed -i "s/%%%PASSWORD%%%/\"${PASSWORD}\"/g" "grafana-admin-secret.yaml"
+  sed -i "s/%%%PASSWORD%%%/${PASSWORD}/g" "grafana-admin-secret.yaml"
   sed -i "s/%%%FS_NAME%%%/${FS_NAME}/g" "grafana.yaml"
   sed -i "s/%%%FIP%%%/${MASTER_IP}/g" "nginx-ingress.yaml"
 fi
