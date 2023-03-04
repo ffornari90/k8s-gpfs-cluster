@@ -18,6 +18,7 @@ data:
    gpgcheck=0" | tee /etc/yum.repos.d/gpfs.repo
    yum install -y gpfs.base gpfs.docs gpfs.ext gpfs.gpl gpfs.gskit gpfs.msg.en_US \
    gpfs.gss.pmsensors-%%%VERSION%%%.el7.x86_64 gpfs.gss.pmcollector-%%%VERSION%%%.el7.x86_64
+   sed -i 's/%H/\$HOSTNAME/g' /usr/lib/systemd/system/pmsensors.service
    /usr/lpp/mmfs/bin/mmbuildgpl
    printf 'UUID=%s %s\t\t%s\t%s\t\t%s %s\n' \
    "$(blkid $(df -h /usr/lpp | awk '{print $1}' | grep -v Filesystem) | awk '{print $2}' | awk -F'\"' '{print $2}')" \

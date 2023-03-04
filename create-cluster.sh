@@ -592,7 +592,6 @@ if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 for i in $(seq 1 $HOST_COUNT)
 do
-  k8s-exec gpfs-mgr$i "sed -i 's/%H/\$HOSTNAME/g' /usr/lib/systemd/system/pmsensors.service"
   k8s-exec gpfs-mgr$i "systemctl start pmsensors; systemctl stop pmsensors; systemctl start pmsensors"
   if [[ "$?" -ne 0 ]]; then exit 1; fi
   k8s-exec gpfs-mgr$i "systemctl start pmcollector"
