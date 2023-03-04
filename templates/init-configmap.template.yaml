@@ -35,10 +35,10 @@ data:
      ssh-keygen -t rsa -f /root/ssh/ssh_host_rsa_key -N ''
      ssh-keygen -t ecdsa -f /root/ssh/ssh_host_ecdsa_key -N ''
      ssh-keygen -t ed25519 -f /root/ssh/ssh_host_ed25519_key -N ''
-     chmod 400 /root/ssh/*_key
-     cp /root/ssh/*_key.pub /etc/ssh/
-     cp /root/ssh/*_key /etc/ssh/
    fi
+   chmod 400 /root/ssh/*_key
+   cp /root/ssh/*_key.pub /etc/ssh/
+   cp /root/ssh/*_key /etc/ssh/
    if ! [ "$(ls -A /root/.ssh/authorized_keys 2>/dev/null)" ]; then
      touch /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
    fi
