@@ -11,6 +11,7 @@ Purple='\033[0;35m'       # Purple
 Cyan='\033[0;36m'         # Cyan
 White='\033[0;37m'        # White
 
+
 # **************************************************************************** #
 #                                  Utilities                                   #
 # **************************************************************************** #
@@ -44,25 +45,39 @@ function gen_role () {
     image_repo=$CC_IMAGE_REPO
     image_tag=$CC_IMAGE_TAG
     hostnames=$HOST_COUNT
+    hostname=""
 
     for i in $(seq 1 $role_count); do
         [[ -z $role_count ]] && i=""
         j=`expr $i - 1`
+        ip_index=${ip_indices[$j]}
         cp "$TEMPLATES_DIR/gpfs-${role}.template.yaml" "gpfs-${role}${i}.yaml"
         sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "gpfs-${role}${i}.yaml"
         sed -i "s/%%%NUMBER%%%/${i}/g" "gpfs-${role}${i}.yaml"
         sed -i "s|%%%IMAGE_REPO%%%|${image_repo}|g" "gpfs-${role}${i}.yaml"
         sed -i "s/%%%IMAGE_TAG%%%/${image_tag}/g" "gpfs-${role}${i}.yaml"
+        RANDOM=$$$(date +%s)
         if [[ $hostnames -eq 0 ]]; then
           workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
-          RANDOM=$$$(date +%s)
-          selected_worker=${workers[ $RANDOM % ${#workers[@]} ]}
-          sed -i "s/%%%NODENAME%%%/${selected_worker}/g" "gpfs-${role}${i}.yaml"
-          sed -i "s/%%%PODNAME%%%/${selected_worker%%.*}-gpfs-${role}-${i}/g" "gpfs-${role}${i}.yaml"
+          hostname=${workers[ $RANDOM % ${#workers[@]} ]}
         else
-          sed -i "s/%%%NODENAME%%%/${HOST_ARRAY[$j]}/g" "gpfs-${role}${i}.yaml"
-          sed -i "s/%%%PODNAME%%%/${HOST_ARRAY[$j]%%.*}-gpfs-${role}-${i}/g" "gpfs-${role}${i}.yaml"
+          hostname=${HOST_ARRAY[$j]}
         fi
+        CIDR="$(calicoctl ipam check | grep host:${hostname}: | awk '{print $3}')"
+        IP_LIST=($(nmap -sL $CIDR | awk '/Nmap scan report/{print $NF}' | grep -v '^$'))
+        ALLOCATED_IPS=($(calicoctl ipam check --show-all-ips | grep node=${hostname} | awk '{print $1}'))
+        for k in "${ALLOCATED_IPS[@]}"
+        do
+            for l in "${!IP_LIST[@]}"
+            do
+                if [[ "${IP_LIST[l]}" = "${k}" ]]; then
+                    unset 'IP_LIST[l]'
+                fi
+            done
+        done
+        sed -i "s/%%%NODENAME%%%/${hostname}/g" "gpfs-${role}${i}.yaml"
+        sed -i "s/%%%PODNAME%%%/${hostname%%.*}-gpfs-${role}-${i}/g" "gpfs-${role}${i}.yaml"
+        sed -i "s/%%%POD_IP%%%/${IP_LIST[ $RANDOM % ${#IP_LIST[@]} ]}/g" "gpfs-${role}${i}.yaml"
     done
 }
 
@@ -228,6 +243,7 @@ cd $GPFS_INSTANCE_DIR
 # Generate the namespace
 cp "$TEMPLATES_DIR/namespace.template.yaml" "namespace-$NAMESPACE.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "namespace-$NAMESPACE.yaml"
+cp "$TEMPLATES_DIR/hosts.template" "hosts"
 
 # Generate the configmap files
 cp "$TEMPLATES_DIR/init-configmap.template.yaml" "init-configmap.yaml"
@@ -372,9 +388,11 @@ g=1
 count=1;
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
     j=`expr $i + 1`
+    scp hosts centos@"${HOST_ARRAY[$i]}": > /dev/null 2>&1
     ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/mgr$j/var_mmfs\""
     ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/mgr$j/root_ssh\""
     ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/mgr$j/etc_ssh\""
+    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mv /home/centos/hosts /root/mgr$j/\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
