@@ -29,6 +29,9 @@ spec:
         image: %%%IMAGE_REPO%%%:%%%IMAGE_TAG%%%
         command: [ "/bin/bash", "-c", "--" ]
         args: [ "./scripts/init-container.sh" ]
+        env:
+        - name: FS_NAME
+          value: %%%FS_NAME%%%
         securityContext:
           privileged: true
         readinessProbe:

@@ -16,8 +16,43 @@ data:
    baseurl=file:///usr/lpp/mmfs/%%%VERSION%%%/zimon_rpms/rhel7/
    enabled=1
    gpgcheck=0" | tee /etc/yum.repos.d/gpfs.repo
-   yum install -y gpfs.base gpfs.docs gpfs.ext gpfs.gpl gpfs.gskit gpfs.msg.en_US \
+   yum install -y sudo cronie gpfs.base gpfs.docs gpfs.ext gpfs.gpl gpfs.gskit gpfs.msg.en_US \
    gpfs.gss.pmsensors-%%%VERSION%%%.el7.x86_64 gpfs.gss.pmcollector-%%%VERSION%%%.el7.x86_64
+   echo "Defaults:gpfs_exporter !syslog
+   Defaults:gpfs_exporter !requiretty
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmgetstate -Y
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmpmon -s -p
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdiag --config -Y
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmhealth node show -Y
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmfsadm test verbs status
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlsfs all -Y -T
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdiag --waiters -Y
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmces state show *
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdf ${FS_NAME} -Y
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdf project -Y
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmdf scratch -Y
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmrepquota -j -Y -a
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmrepquota -j -Y project scratch
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlssnapshot project -s all -Y
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlssnapshot ess -s all -Y
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlsfileset project -Y
+   gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmlsfileset ess -Y" | tee /etc/sudoers.d/gpfs_exporter
+   /usr/sbin/crond
+   curl -sL "https://github.com/treydock/gpfs_exporter/releases/download/v2.2.0/gpfs_exporter-2.2.0.linux-amd64.tar.gz" \
+   -o gpfs_exporter-2.2.0.linux-amd64.tar.gz
+   tar xf gpfs_exporter-2.2.0.linux-amd64.tar.gz && rm -f gpfs_exporter-2.2.0.linux-amd64.tar.gz
+   groupadd -r gpfs_exporter 
+   useradd -r -d /var/lib/gpfs_exporter -s /sbin/nologin -M -g gpfs_exporter -M gpfs_exporter
+   cp gpfs_exporter-2.2.0.linux-amd64/gpfs_* /usr/local/bin/
+   echo "/usr/local/bin/gpfs_mmdf_exporter --output /var/log/journal/gpfs_mmdf_exporter.service.log --collector.mmdf.filesystems ${FS_NAME}" \
+   | tee /usr/local/bin/mmdf-cron.sh
+   chmod +x /usr/local/bin/mmdf-cron.sh
+   echo "*/2 * * * * /usr/local/bin/mmdf-cron.sh" | tee /var/spool/cron/mmdf
+   crontab /var/spool/cron/mmdf
+   curl -s "https://raw.githubusercontent.com/treydock/gpfs_exporter/master/systemd/gpfs_exporter.service" \
+   -o /etc/systemd/system/gpfs_exporter.service
+   sed -i 's#ExecStart=/usr/local/bin/gpfs_exporter#ExecStart=/usr/local/bin/gpfs_exporter --collector.mmdf --collector.mmdf.filesystems '${FS_NAME}'#g' \
+   /etc/systemd/system/gpfs_exporter.service
    sed -i 's/%H/\$HOSTNAME/g' /usr/lib/systemd/system/pmsensors.service
    /usr/lpp/mmfs/bin/mmbuildgpl
    printf 'UUID=%s %s\t\t%s\t%s\t\t%s %s\n' \
