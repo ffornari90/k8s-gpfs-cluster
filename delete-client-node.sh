@@ -23,7 +23,7 @@ CLI_FILE=$(grep -m1 -Ir $CLI_NAME | awk -F':' '{print $1}')
 OFFSET=$(echo "$CLI_FILE" | grep -oP '\d+(?=[^/]*$)')
 HOST_NAME=${cli_hosts[$CLI_INDEX]}
 kubectl -n $namespace exec $CLI_POD_NAME -- /usr/lpp/mmfs/bin/mmumount all -a
-kubectl -n $namespace exec $MGR_POD_NAME -- /usr/lpp/mmfs/bin/mmdelnode -N $CLI_NAME
+kubectl -n $namespace exec $MGR_POD_NAME -- /usr/lpp/mmfs/bin/mmdelnode -N $CLI_POD_NAME
 kubectl delete -f "./gpfs-instance-$namespace/gpfs-cli${OFFSET}.yaml"
 kubectl delete -f "./gpfs-instance-$namespace/cli-svc${OFFSET}.yaml"
 for cli in ${clis[@]}

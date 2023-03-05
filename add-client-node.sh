@@ -50,8 +50,21 @@ function gen_role () {
     workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -o=jsonpath='{range .items[1:]}{.metadata.name}{"\n"}{end}'`)
     RANDOM=$$$(date +%s)
     selected_worker=${workers[ $RANDOM % ${#workers[@]} ]}
+    CIDR="$(calicoctl ipam check | grep host:${selected_worker}: | awk '{print $3}')"
+    IP_LIST=($(nmap -sL $CIDR | awk '/Nmap scan report/{print $NF}' | grep -v '^$'))
+    ALLOCATED_IPS=($(calicoctl ipam check --show-all-ips | grep node=${selected_worker} | awk '{print $1}'))
+    for k in "${ALLOCATED_IPS[@]}"
+    do
+      for l in "${!IP_LIST[@]}"
+      do
+        if [[ "${IP_LIST[l]}" = "${k}" ]]; then
+          unset 'IP_LIST[l]'
+        fi
+      done
+    done
     sed -i "s/%%%NODENAME%%%/${selected_worker}/g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%PODNAME%%%/${selected_worker%%.*}-gpfs-${role}-${index}/g" "gpfs-${role}${index}.yaml"
+    sed -i "s/%%%POD_IP%%%/${IP_LIST[ $RANDOM % ${#IP_LIST[@]} ]}/g" "gpfs-${role}${index}.yaml"
 }
 
 function k8s-exec() {
@@ -142,6 +155,7 @@ gen_role cli
 index=$(ls | grep -o 'cli[0-9]\+' | cut -c4- | tail -1)
 printf '\n'
 # Generate the services
+cp "$TEMPLATES_DIR/hosts.template" "hosts"
 cp "$TEMPLATES_DIR/gpfs-cli-svc.template.yaml" "cli-svc${index}.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NUMBER%%%/${index}/g" "cli-svc${index}.yaml"
@@ -163,9 +177,11 @@ CLI_FILE="./gpfs-cli${index}.yaml"
 HOST_NAME=$(cat $CLI_FILE | grep nodeName | awk '{print $2}')
 POD_NAME="$(cat $CLI_FILE | grep -m1 name | awk '{print $2}')-0"
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
+    scp hosts centos@"${HOST_NAME}": > /dev/null 2>&1
     ssh "${HOST_NAME}" -l centos "sudo su - -c \"mkdir -p /root/cli${index}/var_mmfs\""
     ssh "${HOST_NAME}" -l centos "sudo su - -c \"mkdir -p /root/cli${index}/root_ssh\""
     ssh "${HOST_NAME}" -l centos "sudo su - -c \"mkdir -p /root/cli${index}/etc_ssh\""
+    ssh "${HOST_NAME}" -l centos "sudo su - -c \"mv /home/centos/hosts /root/cli${index}/\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
@@ -317,7 +333,6 @@ echo -e "${Yellow} Setup sensors and collectors to gather monitoring metrics... 
 k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmchnode --perfmon -N ${POD_NAME}"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
-k8s-exec gpfs-cli$index "sed -i 's/%H/\$HOSTNAME/g' /usr/lib/systemd/system/pmsensors.service"
 k8s-exec gpfs-cli$index "systemctl start pmsensors; systemctl stop pmsensors; systemctl start pmsensors"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 k8s-exec gpfs-cli$index "systemctl start pmcollector"
@@ -326,7 +341,7 @@ if [[ "$?" -ne 0 ]]; then exit 1; fi
 PROMETHEUS_FILE="prometheus.yaml"
 if [ -f "$PROMETHEUS_FILE" ]; then
   echo -e "${Yellow} Setup Prometheus and Grafana monitoring for client node... ${Color_Off}"
-  FS_NAME=$(k8s-exec gpfs-cli$index '/usr/lpp/mmfs/bin/mmlsfs all_local -T -Y | grep ibm | awk -F"%2F" '"'"{print \$3}'"'"' | sed "s/://g"') 
+  FS_NAME=$(k8s-exec gpfs-cli$index "ls /ibm/") 
   k8s-exec gpfs-cli$index "yum install -y sudo cronie > /dev/null 2>&1"
   if [[ "$?" -ne 0 ]]; then exit 1; fi
   k8s-exec gpfs-cli$index "/usr/sbin/crond"

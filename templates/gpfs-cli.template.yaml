@@ -19,6 +19,8 @@ spec:
       labels:
         app: *name
         role: gpfs-cli
+      annotations:
+        "cni.projectcalico.org/ipAddrs": "[\"%%%POD_IP%%%\"]"
     spec:
       hostNetwork: false
       nodeName: %%%NODENAME%%%
@@ -40,6 +42,8 @@ spec:
             subPath: init-container.sh
           - name: installdir
             mountPath: /usr/lpp
+          - name: hostsfile
+            mountPath: /etc/hosts
           - name: gendir
             mountPath: /var/mmfs
           - name: etcsshdir
@@ -55,6 +59,10 @@ spec:
         hostPath:
           path: /usr/lpp
           type: Directory
+      - name: hostsfile
+        hostPath:
+          path: /root/cli%%%NUMBER%%%/hosts
+          type: File
       - name: gendir
         hostPath:
           path: /root/cli%%%NUMBER%%%/var_mmfs
