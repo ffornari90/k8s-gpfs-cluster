@@ -38,11 +38,6 @@ do
   kubectl -n $namespace exec $mgr -- bash -c "sed -i \"/"$CLI_POD_NAME"/d\" /root/.ssh/known_hosts"
   kubectl -n $namespace exec $mgr -- bash -c "sed -i \"/"$CLI_POD_NAME"/d\" /root/.ssh/authorized_keys"
 done
-PROMETHEUS_FILE="./gpfs-instance-$namespace/prometheus.yaml"
-if [ -f "$PROMETHEUS_FILE" ]; then
-  sed -i "/"gpfs-cli${OFFSET}"/d" "$PROMETHEUS_FILE"
-  helm upgrade -f "$PROMETHEUS_FILE" prometheus prometheus-community/prometheus
-fi
 ssh $HOST_NAME -l centos "sudo su - -c \"rm -rf /root/cli${OFFSET}\""
 rm -rf "./gpfs-instance-$namespace/cli-svc${OFFSET}.yaml"
 rm -rf "./gpfs-instance-$namespace/gpfs-cli${OFFSET}.yaml"

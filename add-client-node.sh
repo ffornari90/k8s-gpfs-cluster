@@ -346,12 +346,9 @@ if [ -f "$PROMETHEUS_FILE" ]; then
   echo -e "${Yellow} Setup Prometheus and Grafana monitoring for client node... ${Color_Off}"
   k8s-exec gpfs-cli$index "systemctl daemon-reload && systemctl start gpfs_exporter"
   if [[ "$?" -ne 0 ]]; then exit 1; fi
-  sed -i '/        - gpfs-mgr1.'$NAMESPACE'.svc.cluster.local:9303/{i\        - gpfs-cli'$index'.'$NAMESPACE'.svc.cluster.local:9093
-}' $PROMETHEUS_FILE
-  helm upgrade -f $PROMETHEUS_FILE prometheus prometheus-community/prometheus
-else
-  sleep 10
 fi
+
+sleep 10
 
 if command -v oc &> /dev/null; then
   oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po -lapp=gpfs-mgr1 -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
