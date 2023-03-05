@@ -1,0 +1,32 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: application-indigo
+  namespace: %%%NAMESPACE%%%
+data:
+  application-indigo.yml: |
+    oauth:
+      issuers:
+        - name: iam-indigo
+          issuer: https://iam-indigo.cr.cnaf.infn.it/
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: storage-area
+  namespace: %%%NAMESPACE%%%
+data:
+  sa.properties: |
+    # Name of the storage area
+    name=indigo-dc
+    # Root path for the storage area. Files will be served from this path, which must exist and
+    # must be accessible from the user that runs the storm webdav service
+    rootPath=/ibm/%%%FS_NAME%%%
+    # Comma separated list of storage area access points. 
+    accessPoints=/indigo-dc
+    # Comma-separated list of OAuth/OpenID Connect token issuers trusted in this storage area
+    orgs=https://iam-indigo.cr.cnaf.infn.it/
+    # Enables write access to storage area files to users authenticated using OAuth/OIDC. Defaults to false.
+    orgsGrantWritePermission=true

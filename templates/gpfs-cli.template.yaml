@@ -22,37 +22,6 @@ spec:
       annotations:
         "cni.projectcalico.org/ipAddrs": "[\"%%%POD_IP%%%\"]"
     spec:
-      hostNetwork: false
-      nodeName: %%%NODENAME%%%
-      containers:
-      - name: %%%PODNAME%%%
-        image: %%%IMAGE_REPO%%%:%%%IMAGE_TAG%%%
-        command: [ "/bin/bash", "-c", "--" ]
-        args: [ "./scripts/init-container.sh" ]
-        env:        
-        - name: FS_NAME
-          value: %%%FS_NAME%%%
-        securityContext:
-          privileged: true
-        readinessProbe:
-          tcpSocket:
-            port: 22
-          initialDelaySeconds: 5
-          periodSeconds: 10
-        volumeMounts:
-          - name: init-container
-            mountPath: /scripts/init-container.sh
-            subPath: init-container.sh
-          - name: installdir
-            mountPath: /usr/lpp
-          - name: hostsfile
-            mountPath: /etc/hosts
-          - name: gendir
-            mountPath: /var/mmfs
-          - name: etcsshdir
-            mountPath: /root/ssh
-          - name: rootsshdir
-            mountPath: /root/.ssh
       volumes:
       - name: init-container
         configMap:
@@ -78,3 +47,142 @@ spec:
         hostPath:
           path: /root/cli%%%NUMBER%%%/root_ssh
           type: Directory
+      - name: application-indigo
+        configMap:
+          name: application-indigo
+          defaultMode: 0644
+      - name: storage-area
+        configMap:
+          name: storage-area
+          defaultMode: 0644
+      - name: certs-volume
+        secret:
+          secretName: tls-ssl-storm-webdav
+          items:
+          - key: public.crt
+            path: public.crt
+          - key: private.key
+            path: private.key
+          - key: ca.crt
+            path: CAs/ca.crt
+      - name: trust
+        emptyDir: {}
+      initContainers:
+      - name: storm-webdav-ca-bundle
+        image: "alpine"
+        command: [sh, -c]
+        args:
+          - cd /tmp &&
+            wget 'http://repository.egi.eu/sw/production/cas/1/current/tgz/' &&
+            mkdir tgz && mkdir certificates &&
+            for tgz in $(cat index.html | awk -F'"' '{print $2}' | grep tar.gz);
+            do wget http://repository.egi.eu/sw/production/cas/1/current/tgz/$tgz -O tgz/$tgz;
+            done && for tgz in $(ls tgz/);
+            do tar xzf tgz/$tgz --strip-components=1 -C certs/; done 
+        volumeMounts:
+        - name: trust
+          mountPath: /tmp/certs
+      hostNetwork: false
+      nodeName: %%%NODENAME%%%
+      containers:
+      - name: %%%PODNAME%%%
+        image: %%%IMAGE_REPO%%%:%%%IMAGE_TAG%%%
+        securityContext:
+          privileged: true
+        readinessProbe:
+          tcpSocket:
+            port: 22
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        command: [sh, -c]
+        args:
+        - update-ca-trust &&
+          curl https://raw.githubusercontent.com/indigo-iam/egi-trust-anchors-container/main/EGI-trustanchors.repo -o /etc/yum.repos.d/ca.repo &&
+          yum install -y ca-policy-egi-core &&
+          /scripts/init-container.sh
+        env:        
+        - name: FS_NAME
+          value: "%%%FS_NAME%%%"
+        - name: STORM_WEBDAV_JVM_OPTS
+          value: "-Xms8384m -Xmx8384m -Djava.security.egd=file:/dev/./urandom -Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false"
+        - name: STORM_WEBDAV_USER
+          value: "storm"
+        - name: STORM_WEBDAV_PROFILE
+          value: "indigo"
+        - name: STORM_WEBDAV_SERVER_ADDRESS
+          value: "0.0.0.0"
+        - name: STORM_WEBDAV_HTTPS_PORT
+          value: "8443"
+        - name: STORM_WEBDAV_HTTP_PORT
+          value: "8085"
+        - name: STORM_WEBDAV_REQUIRE_CLIENT_CERT
+          value: "false"
+        - name: STORM_WEBDAV_CERTIFICATE_PATH
+          value: "/etc/grid-security/storm-webdav/hostcert.pem"
+        - name: STORM_WEBDAV_PRIVATE_KEY_PATH
+          value: "/etc/grid-security/storm-webdav/hostkey.pem"
+        - name: STORM_WEBDAV_TRUST_ANCHORS_DIR
+          value: "/etc/ssl/certs"
+        - name: STORM_WEBDAV_TRUST_ANCHORS_REFRESH_INTERVAL
+          value: "86400"
+        - name: STORM_WEBDAV_MAX_CONNECTIONS
+          value: "500"
+        - name: STORM_WEBDAV_MAX_QUEUE_SIZE
+          value: "900"
+        - name: STORM_WEBDAV_CONNECTOR_MAX_IDLE_TIME
+          value: "30000"
+        - name: STORM_WEBDAV_SA_CONFIG_DIR
+          value: "/etc/storm/webdav/sa.d"
+        - name: STORM_WEBDAV_JAR
+          value: "/etc/storm/webdav/storm-webdav-server.jar"
+        - name: STORM_WEBDAV_LOG
+          value: "/var/log/storm/webdav/storm-webdav-server.log"
+        - name: STORM_WEBDAV_OUT
+          value: "/var/log/storm/webdav/storm-webdav-server.out"
+        - name: STORM_WEBDAV_ERR
+          value: "/var/log/storm/webdav/storm-webdav-server.err"
+        - name: STORM_WEBDAV_TMPDIR
+          value: "/var/lib/storm-webdav/work"
+        - name: STORM_WEBDAV_LOG_CONFIGURATION
+          value: "/etc/storm/webdav/logback.xml"
+        - name: STORM_WEBDAV_ACCESS_LOG_CONFIGURATION
+          value: "/etc/storm/webdav/logback-access.xml"
+        - name: STORM_WEBDAV_VO_MAP_FILES_ENABLE
+          value: "false"
+        - name: STORM_WEBDAV_VO_MAP_FILES_CONFIG_DIR
+          value: "/etc/storm/webdav/vo-mapfiles.d"
+        - name: STORM_WEBDAV_VO_MAP_FILES_REFRESH_INTERVAL
+          value: "21600"
+        - name: STORM_WEBDAV_TPC_MAX_CONNECTIONS
+          value: "50"
+        - name: STORM_WEBDAV_TPC_VERIFY_CHECKSUM
+          value: "false"
+        - name: STORM_WEBDAV_USE_CONSCRYPT
+          value: "true"
+        - name: STORM_WEBDAV_ENABLE_HTTP2
+          value: "true"
+        volumeMounts:
+        - name: certs-volume
+          mountPath: /tmp/.storm-webdav/certs
+        - mountPath: /etc/pki/ca-trust/source/anchors
+          name: trust
+          readOnly: true
+        - name: application-indigo
+          mountPath: /etc/storm/webdav/config/application-indigo.yml
+          subPath: application-indigo.yml
+        - name: storage-area
+          mountPath: /etc/storm/webdav/sa.d/sa.properties
+          subPath: sa.properties
+        - name: init-container
+          mountPath: /scripts/init-container.sh
+          subPath: init-container.sh
+        - name: installdir
+          mountPath: /usr/lpp
+        - name: hostsfile
+          mountPath: /etc/hosts
+        - name: gendir
+          mountPath: /var/mmfs
+        - name: etcsshdir
+          mountPath: /root/ssh
+        - name: rootsshdir
+          mountPath: /root/.ssh

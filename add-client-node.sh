@@ -59,7 +59,7 @@ function gen_role () {
     do
       for l in "${!IP_LIST[@]}"
       do
-        if [[ "${IP_LIST[l]}" = "${k}" ]]; then
+        if [[ "${IP_LIST[l]}" = "${k}" || -z "${IP_LIST[l]}" ]]; then
           unset 'IP_LIST[l]'
         fi
       done
@@ -91,7 +91,7 @@ fi
 
 # defaults
 NAMESPACE="ns$(date +%s)"
-CC_IMAGE_REPO="ffornari/gpfs-mgr"
+CC_IMAGE_REPO="ffornari/gpfs-storm-webdav"
 CC_IMAGE_TAG="centos7"
 HOST_COUNT=0
 TIMEOUT=3600
@@ -160,8 +160,24 @@ printf '\n'
 # Generate the services
 cp "$TEMPLATES_DIR/hosts.template" "hosts"
 cp "$TEMPLATES_DIR/gpfs-cli-svc.template.yaml" "cli-svc${index}.yaml"
+cp "$TEMPLATES_DIR/storm-webdav-configmap.template.yaml" "storm-webdav-configmap.yaml"
+if [ ! -d "certs" ]; then
+  mkdir -p certs
+  openssl req -x509 -newkey rsa:4096 -days 365 \
+  -nodes -sha256 -keyout certs/private.key -out certs/public.crt \
+  -subj "/CN=storm-webdav-$NAMESPACE.svc.cluster.local"
+  cp certs/public.crt certs/ca.crt
+  kubectl create secret generic \
+   tls-ssl-storm-webdav \
+   -n $NAMESPACE \
+   --from-file=./certs/private.key \
+   --from-file=./certs/public.crt \
+   --from-file=./certs/ca.crt
+fi
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NUMBER%%%/${index}/g" "cli-svc${index}.yaml"
+sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-configmap.yaml"
+sed -i "s/%%%FS_NAME%%%/$FS_NAME/g" "storm-webdav-configmap.yaml"
 
 # **********************************************************************************************
 # Deploy the instance #
@@ -172,6 +188,7 @@ roles_yaml=("gpfs-*.yaml")
 
 # Instantiate the services
 kubectl apply -f "cli-svc${index}.yaml"
+kubectl apply -f "storm-webdav-configmap.yaml"
 
 # Conditionally split the pod creation in groups, since apparently the external provisioner (manila?) can't deal with too many volume-creation request per second
 g=1
@@ -233,6 +250,7 @@ for i in $(seq 0 $size)
 do
   printf '%s %s\n' "${svcs[$i]}" "${pods[$i]}" | tee -a hosts.tmp
 done
+printf '%s %s\n' "131.154.162.124" "iam-indigo.cr.cnaf.infn.it" | tee -a hosts.tmp
 
 for pod in ${pods[@]}
 do
@@ -355,6 +373,16 @@ if command -v oc &> /dev/null; then
 else
   k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmhealth cluster show"
 fi
+
+echo -e "${Yellow} Starting StoRM-WebDAV service on client node... ${Color_Off}"
+k8s-exec gpfs-cli$index "su - storm -c \"cp /tmp/.storm-webdav/certs/private.key /etc/grid-security/storm-webdav/hostkey.pem\""
+if [[ "$?" -ne 0 ]]; then exit 1; fi
+k8s-exec gpfs-cli$index "su - storm -c \"cp /tmp/.storm-webdav/certs/public.crt /etc/grid-security/storm-webdav/hostcert.pem\""
+if [[ "$?" -ne 0 ]]; then exit 1; fi
+k8s-exec gpfs-cli$index "su - storm -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
+-Dspring.profiles.active=\$STORM_WEBDAV_PROFILE -Dlogging.config=\$STORM_WEBDAV_LOG_CONFIGURATION -jar \$STORM_WEBDAV_JAR \
+> \$STORM_WEBDAV_OUT 2>\$STORM_WEBDAV_ERR\" &"
+if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 # @todo add error handling
 echo -e "${Green} Exec went OK for all the Pods ${Color_Off}"

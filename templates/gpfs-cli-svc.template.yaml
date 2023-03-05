@@ -31,3 +31,7 @@ spec:
     protocol: TCP
     port: 9303
     targetPort: 9303
+  - name: storm-webdav-https
+    port: 8443
+  - name: storm-webdav-http
+    port: 8085

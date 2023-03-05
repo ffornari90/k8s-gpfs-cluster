@@ -72,7 +72,7 @@ function gen_role () {
         do
             for l in "${!IP_LIST[@]}"
             do
-                if [[ "${IP_LIST[l]}" = "${k}" ]]; then
+                if [[ "${IP_LIST[l]}" = "${k}" || -z "${IP_LIST[l]}" ]]; then
                     unset 'IP_LIST[l]'
                 fi
             done
