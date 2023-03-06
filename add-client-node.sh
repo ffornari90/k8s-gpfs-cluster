@@ -207,11 +207,11 @@ for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
         kubectl apply -f $p;
     done
 
-    podsReady=$(kubectl get pods --namespace=$NAMESPACE -lrole=gpfs-cli -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" |  wc -l)
+    podsReady=$(kubectl get pods --namespace=$NAMESPACE -lapp=gpfs-cli${index} -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" |  wc -l)
     podsReadyExpected=$(( $((i+g))<${#roles_yaml[@]} ? $((i+g)) : ${#roles_yaml[@]} ))
     # [ tty ] && tput sc @todo
     while [[ $count -le 600 ]] && [[ "$podsReady" -lt "$podsReadyExpected" ]]; do
-        podsReady=$(kubectl get pods --namespace=$NAMESPACE -lrole=gpfs-cli -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" | wc -l)
+        podsReady=$(kubectl get pods --namespace=$NAMESPACE -lapp=gpfs-cli${index} -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" | wc -l)
         if [[ $(($count%10)) == 0 ]]; then
             # [ tty ] && tput rc @todo
             echo -e "\n${Yellow} Current situation of pods: ${Color_Off}"
@@ -265,6 +265,7 @@ echo -e "${Yellow} Distribute SSH keys on all the Pods... ${Color_Off}"
 
 mgr_hosts=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-mgr -ojsonpath="{.items[*].spec.nodeName}"`)
 mgr_pods=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-mgr -ojsonpath="{.items[*].metadata.name}"`)
+cli_hosts=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-cli -ojsonpath="{.items[*].spec.nodeName}"`)
 cli_pods=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-cli -ojsonpath="{.items[*].metadata.name}"`)
 
 for i in $(seq 1 ${#mgr_pods[@]})
@@ -283,6 +284,12 @@ for i in $(seq 1 ${#mgr_hosts[@]})
 do
   j=`expr $i - 1`
   ssh "${mgr_hosts[$j]}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
+done
+
+for i in $(seq 1 ${#cli_hosts[@]})
+do
+  j=`expr $i - 1`
+  ssh "${cli_hosts[$j]}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$i/root_ssh/authorized_keys"
 done
 
 for pod in ${cli_pods[@]}
