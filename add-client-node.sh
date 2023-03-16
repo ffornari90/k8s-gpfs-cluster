@@ -160,6 +160,8 @@ printf '\n'
 # Generate the services
 cp "$TEMPLATES_DIR/hosts.template" "hosts"
 cp "$TEMPLATES_DIR/gpfs-cli-svc.template.yaml" "cli-svc${index}.yaml"
+cp "$TEMPLATES_DIR/storm-webdav-svc.template.yaml" "storm-webdav-svc.yaml"
+cp "$TEMPLATES_DIR/storm-webdav-ingress.template.yaml" "storm-webdav-ingress.yaml"
 cp "$TEMPLATES_DIR/storm-webdav-configmap.template.yaml" "storm-webdav-configmap.yaml"
 if [ ! -d "certs" ]; then
   mkdir -p certs
@@ -173,9 +175,15 @@ if [ ! -d "certs" ]; then
    --from-file=./certs/private.key \
    --from-file=./certs/public.crt \
    --from-file=./certs/ca.crt
+  kubectl create secret tls storm-cert \
+  --cert=./certs/public.crt \
+  --key=./certs/private.key \
+  -n $NAMESPACE 
 fi
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NUMBER%%%/${index}/g" "cli-svc${index}.yaml"
+sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-svc.yaml"
+sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-ingress.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-configmap.yaml"
 sed -i "s/%%%FS_NAME%%%/$FS_NAME/g" "storm-webdav-configmap.yaml"
 
@@ -188,6 +196,8 @@ roles_yaml=("gpfs-*.yaml")
 
 # Instantiate the services
 kubectl apply -f "cli-svc${index}.yaml"
+kubectl apply -f "storm-webdav-svc.yaml"
+kubectl apply -f "storm-webdav-ingress.yaml"
 kubectl apply -f "storm-webdav-configmap.yaml"
 
 # Conditionally split the pod creation in groups, since apparently the external provisioner (manila?) can't deal with too many volume-creation request per second

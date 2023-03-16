@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: storm-webdav-ingress
+  namespace: %%%NAMESPACE%%%
+  annotations:
+    nginx.org/ssl-services: "storm-webdav"
+spec:
+  tls:
+    - hosts:
+      - storm-webdav-%%%NAMESPACE%%%.svc.cluster.local # Domain name of the service
+      secretName: storm-cert # provide the aforementioned secret.
+  rules:
+  - host: storm-webdav-%%%NAMESPACE%%%.svc.cluster.local
+    http:
+      paths:
+      - path: "/"
+        pathType: Prefix
+        backend:
+          service:
+            name: storm-webdav
+            port:
+              number: 8443
+  ingressClassName: nginx
