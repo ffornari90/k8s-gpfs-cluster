@@ -57,7 +57,7 @@ spec:
           defaultMode: 0644
       - name: certs-volume
         secret:
-          secretName: tls-ssl-storm-webdav
+          secretName: tls-ssl-storm-webdav-%%%NUMBER%%%
           items:
           - key: public.crt
             path: public.crt

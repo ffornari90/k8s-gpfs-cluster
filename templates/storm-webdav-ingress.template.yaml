@@ -4,14 +4,15 @@ metadata:
   name: storm-webdav-ingress
   namespace: %%%NAMESPACE%%%
   annotations:
+    nginx.org/ssl-redirect: "true"
     nginx.org/ssl-services: "storm-webdav"
 spec:
   tls:
     - hosts:
-      - storm-webdav-%%%NAMESPACE%%%.svc.cluster.local # Domain name of the service
+      - storm-webdav-%%%NAMESPACE%%%.novalocal # Domain name of the service
       secretName: storm-cert # provide the aforementioned secret.
   rules:
-  - host: storm-webdav-%%%NAMESPACE%%%.svc.cluster.local
+  - host: storm-webdav-%%%NAMESPACE%%%.novalocal
     http:
       paths:
       - path: "/"

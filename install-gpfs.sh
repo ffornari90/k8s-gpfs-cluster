@@ -23,3 +23,8 @@ do
   ssh $worker sudo mv "/home/centos/${GPFS_VERSION}" /usr/lpp/mmfs/
 done
 rm -rf os-server.cr.cnaf.infn.it/
+sudo sed -i '/\[ req \]/a req_extensions = req_ext' /etc/pki/tls/openssl.cnf
+echo '[ req_ext ]' | sudo tee -a /etc/pki/tls/openssl.cnf > /dev/null
+echo 'subjectAltName = @alt_names' | sudo tee -a /etc/pki/tls/openssl.cnf > /dev/null
+echo '[ alt_names ]' | sudo tee -a /etc/pki/tls/openssl.cnf > /dev/null
+echo 'IP.1 = ' | sudo tee -a /etc/pki/tls/openssl.cnf > /dev/null

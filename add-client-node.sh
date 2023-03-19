@@ -163,27 +163,9 @@ cp "$TEMPLATES_DIR/gpfs-cli-svc.template.yaml" "cli-svc${index}.yaml"
 cp "$TEMPLATES_DIR/storm-webdav-svc.template.yaml" "storm-webdav-svc.yaml"
 cp "$TEMPLATES_DIR/storm-webdav-ingress.template.yaml" "storm-webdav-ingress.yaml"
 cp "$TEMPLATES_DIR/storm-webdav-configmap.template.yaml" "storm-webdav-configmap.yaml"
-if [ ! -d "certs" ]; then
-  mkdir -p certs
-  openssl req -x509 -newkey rsa:4096 -days 365 \
-  -nodes -sha256 -keyout certs/private.key -out certs/public.crt \
-  -subj "/CN=storm-webdav-$NAMESPACE.svc.cluster.local"
-  cp certs/public.crt certs/ca.crt
-  kubectl create secret generic \
-   tls-ssl-storm-webdav \
-   -n $NAMESPACE \
-   --from-file=./certs/private.key \
-   --from-file=./certs/public.crt \
-   --from-file=./certs/ca.crt
-  kubectl create secret tls storm-cert \
-  --cert=./certs/public.crt \
-  --key=./certs/private.key \
-  -n $NAMESPACE 
-fi
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NUMBER%%%/${index}/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-svc.yaml"
-sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-ingress.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-configmap.yaml"
 sed -i "s/%%%FS_NAME%%%/$FS_NAME/g" "storm-webdav-configmap.yaml"
 
@@ -197,8 +179,53 @@ roles_yaml=("gpfs-*.yaml")
 # Instantiate the services
 kubectl apply -f "cli-svc${index}.yaml"
 kubectl apply -f "storm-webdav-svc.yaml"
-kubectl apply -f "storm-webdav-ingress.yaml"
 kubectl apply -f "storm-webdav-configmap.yaml"
+
+POD_IP=$(cat gpfs-cli${index}.yaml | grep ipAddrs | awk -F'\' '{print $2}' | sed 's/\"//g')
+sudo sed -i 's/\(IP.1 =\)\(.*\)/\1 '"${POD_IP}"'/g' /etc/pki/tls/openssl.cnf
+
+if [ ! -d "cacerts" ]; then
+  mkdir -p "cacerts"
+  openssl genrsa -out cacerts/swCA.key 4096
+  openssl req -x509 -new -nodes -key cacerts/swCA.key \
+   -sha256 -days 1024 -out cacerts/swCA.crt \
+   -subj "/CN=StoRM-WebDAV-CA"
+  CONT_ID=$(docker ps | grep -v POD | grep gpfs-nginx-ingress | awk '{print $1}')
+  docker cp cacerts/swCA.crt $CONT_ID:/tmp/swCA.crt
+  docker exec -u root $CONT_ID /bin/bash -c \
+   'cp /tmp/swCA.crt /usr/local/share/ca-certificates/ && update-ca-certificates'
+fi
+
+mkdir -p "certs${index}"
+openssl genrsa -out certs${index}/private.key 4096
+openssl req -new -sha256 -key certs${index}/private.key \
+ -subj "/CN=storm-webdav-$NAMESPACE.novalocal" \
+ -out certs${index}/public.csr \
+ -config /etc/pki/tls/openssl.cnf
+openssl x509 -req -in certs${index}/public.csr \
+ -CA cacerts/swCA.crt -CAkey cacerts/swCA.key -CAcreateserial \
+ -out certs${index}/public.crt -days 365 -sha256 \
+ -extensions req_ext -extfile /etc/pki/tls/openssl.cnf
+cp cacerts/swCA.crt certs${index}/ca.crt
+
+kubectl create secret generic \
+ tls-ssl-storm-webdav-${index} \
+ -n $NAMESPACE \
+ --from-file=./certs${index}/private.key \
+ --from-file=./certs${index}/public.crt \
+ --from-file=./certs${index}/ca.crt
+
+if [ ! -d "certs" ]; then
+  mkdir -p "certs"
+  cp certs${index}/private.key certs/
+  cp certs${index}/public.crt certs/
+  kubectl create secret tls storm-cert \
+   --cert=./certs/public.crt \
+   --key=./certs/private.key \
+   -n $NAMESPACE
+fi
+sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-ingress.yaml"
+kubectl apply -f "storm-webdav-ingress.yaml"
 
 # Conditionally split the pod creation in groups, since apparently the external provisioner (manila?) can't deal with too many volume-creation request per second
 g=1
