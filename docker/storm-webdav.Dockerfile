@@ -1,6 +1,5 @@
 FROM centos:7
 ARG version
-ENV JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk
 RUN yum update -y && \
     yum clean all && \
     rm -rf /var/cache/yum && \   
@@ -31,18 +30,17 @@ RUN groupadd -g 991 storm && \
     mkdir -p /etc/grid-security/vomsdir && \
     echo 'storm ALL=(ALL) NOPASSWD: /usr/bin/update-ca-trust' \
     > /etc/sudoers.d/trust && \
-    git clone https://github.com/italiangrid/storm-webdav.git && \
-    cd storm-webdav && \
-    mkdir -p ~/.m2 && \
-    cp cnaf-mirror-settings.xml ~/.m2/settings.xml && \
-    git checkout tags/v1.4.1 && \
-    sed -i '45,93 s/@Validated/\/*@Validated*\//' \
-    ./src/main/java/org/italiangrid/storm/webdav/config/ServiceConfigurationProperties.java && \
-    mvn -Pnexus package && \
+    yum install -y https://repository.egi.eu/sw/production/umd/4/centos7/x86_64/updates/storm-webdav-1.4.1-1.el7.noarch.rpm && \
+    mkdir storm-webdav-server && \
+    cd storm-webdav-server && \
+    jar xf /usr/share/java/storm-webdav/storm-webdav-server.jar && \
     cd .. && \
-    rm -rf ~/.m2 && \
-    tar xzvf storm-webdav/target/storm-webdav-server.tar.gz && \
-    rm -rf storm-webdav && \
+    sed -i 's/    requireClientCert: ${STORM_WEBDAV_REQUIRE_CLIENT_CERT:true}/    requireClientCert: ${STORM_WEBDAV_REQUIRE_CLIENT_CERT:false}/g' \
+    storm-webdav-server/BOOT-INF/classes/application.yml && \
+    rm -f /usr/share/java/storm-webdav/storm-webdav-server.jar && \
+    jar -cvf0m /usr/share/java/storm-webdav/storm-webdav-server.jar \
+    storm-webdav-server/META-INF/MANIFEST.MF -C storm-webdav-server . && \
+    rm -rf storm-webdav-server && \
     mv /usr/share/java/storm-webdav/storm-webdav-server.jar \
     /etc/storm/webdav/storm-webdav-server.jar && \
     chown storm:storm -R /etc/grid-security/storm-webdav && \
