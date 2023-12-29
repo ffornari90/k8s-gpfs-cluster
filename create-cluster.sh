@@ -208,7 +208,7 @@ while getopts 'N:C:H:b:i:q:n:d:f:g:t:v:h' opt; do
                 echo "! Wrong arg -$opt"; exit 1
             fi ;;
         v) # GPFS version must match pre-installed release
-            GPFS_PRE_INSTALLED=$(ssh -l core ${workers[0]} ls /home/core | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$')
+            GPFS_PRE_INSTALLED=$(ssh -l core ${workers[0]} ls /home/core/mmfs | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$')
             if [[ "$OPTARG" == "$GPFS_PRE_INSTALLED" ]]; then
                 VERSION=${OPTARG}
             else

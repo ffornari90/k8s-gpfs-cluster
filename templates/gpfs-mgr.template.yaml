@@ -47,7 +47,7 @@ spec:
             mountPath: /root/node.list
             subPath: node.list
           - name: installdir
-            mountPath: /usr/lpp/mmfs
+            mountPath: /usr/lpp
           - name: hostsfile
             mountPath: /etc/hosts
           - name: gendir

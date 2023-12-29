@@ -172,7 +172,7 @@ spec:
           mountPath: /scripts/init-container.sh
           subPath: init-container.sh
         - name: installdir
-          mountPath: /usr/lpp/mmfs
+          mountPath: /usr/lpp
         - name: hostsfile
           mountPath: /etc/hosts
         - name: gendir
