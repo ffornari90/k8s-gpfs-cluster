@@ -29,24 +29,19 @@ spec:
           defaultMode: 0755
       - name: installdir
         hostPath:
-          path: /usr/lpp
-          type: Directory
+          path: /home/core
       - name: hostsfile
         hostPath:
           path: /root/cli%%%NUMBER%%%/hosts
-          type: File
       - name: gendir
         hostPath:
           path: /root/cli%%%NUMBER%%%/var_mmfs
-          type: Directory
       - name: etcsshdir
         hostPath:
           path: /root/cli%%%NUMBER%%%/etc_ssh
-          type: Directory
       - name: rootsshdir
         hostPath:
           path: /root/cli%%%NUMBER%%%/root_ssh
-          type: Directory
       - name: application-indigo
         configMap:
           name: application-indigo
@@ -177,7 +172,7 @@ spec:
           mountPath: /scripts/init-container.sh
           subPath: init-container.sh
         - name: installdir
-          mountPath: /usr/lpp
+          mountPath: /usr/lpp/mmfs
         - name: hostsfile
           mountPath: /etc/hosts
         - name: gendir

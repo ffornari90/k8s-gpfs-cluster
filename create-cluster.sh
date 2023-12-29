@@ -32,7 +32,7 @@ function usage () {
     echo "-f    Specify desired GPFS file system name (mountpoint is /ibm/<fs_name>)"
     echo "-g    Specify if monitoring with Prometheus and Grafana has to be deployed (default is no)"
     echo "-t    Specify desired timeout for Pods creation in seconds (default is 3600)"
-    echo "-v    Specify desired GPFS version for cluster creation (default is 5.1.2-8)"
+    echo "-v    Specify desired GPFS version for cluster creation (default is 5.1.8-2)"
     echo
     echo "-h    Show usage and exit"
     echo
@@ -65,9 +65,9 @@ function gen_role () {
         else
           hostname=${HOST_ARRAY[$j]}
         fi
-        CIDR="$(calicoctl ipam check | grep host:${hostname}: | awk '{print $3}')"
+        CIDR="$(${PWD}/../calicoctl ipam check | grep host:${hostname}: | awk '{print $3}')"
         IP_LIST=($(nmap -sL $CIDR | awk '/Nmap scan report/{print $NF}' | grep -v '^$'))
-        ALLOCATED_IPS=($(calicoctl ipam check --show-all-ips | grep node=${hostname} | awk '{print $1}'))
+        ALLOCATED_IPS=($(${PWD}/../calicoctl ipam check --show-all-ips | grep node=${hostname} | awk '{print $1}'))
         for k in "${ALLOCATED_IPS[@]}"
         do
             for l in "${!IP_LIST[@]}"
@@ -77,9 +77,17 @@ function gen_role () {
                 fi
             done
         done
+        pod_ip=""
+        while true; do
+            index=$((1 + $RANDOM % ${#IP_LIST[@]}))
+            if [ -n "${IP_LIST[index-1]}" ]; then
+                pod_ip="${IP_LIST[index-1]}"
+                break
+            fi
+        done
         sed -i "s/%%%NODENAME%%%/${hostname}/g" "gpfs-${role}${i}.yaml"
         sed -i "s/%%%PODNAME%%%/${hostname%%.*}-gpfs-${role}-${i}/g" "gpfs-${role}${i}.yaml"
-        sed -i "s/%%%POD_IP%%%/${IP_LIST[ $RANDOM % ${#IP_LIST[@]} ]}/g" "gpfs-${role}${i}.yaml"
+        sed -i "s/%%%POD_IP%%%/${pod_ip}/g" "gpfs-${role}${i}.yaml"
     done
 }
 
@@ -117,7 +125,7 @@ NSD_COUNT=0
 MON_DEPLOY="no"
 QRM_COUNT=1
 TIMEOUT=3600
-VERSION=5.1.2-8
+VERSION=5.1.8-2
 workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
 WORKER_COUNT="${#workers[@]}"
 
@@ -136,7 +144,7 @@ while getopts 'N:C:H:b:i:q:n:d:f:g:t:v:h' opt; do
         H)
             num_commas=$(echo "${OPTARG}" | tr -cd ',' | wc -c)
             if [[ $num_commas -lt $WORKER_COUNT ]]; then
-                if grep -q -P '^([[:alnum:]]+\.)*[[:alnum:]]+([,]([[:alnum:]]+\.)*[[:alnum:]]+)*$' <<< $OPTARG; then
+                if grep -q -P '^([[:alnum:]-]+\.)*[[:alnum:]-]+([,]([[:alnum:]-]+\.)*[[:alnum:]-]+)*$' <<< $OPTARG; then
                     IFS=', ' read -r -a HOST_ARRAY <<< "${OPTARG}"
                     HOST_COUNT="${#HOST_ARRAY[@]}"
                     HOST_LIST="${OPTARG}"
@@ -156,10 +164,10 @@ while getopts 'N:C:H:b:i:q:n:d:f:g:t:v:h' opt; do
             else
                 echo "! Wrong arg -$opt"; exit 1
             fi ;;
-        n) 
+        n)
             num_commas=$(echo "${OPTARG}" | tr -cd ',' | wc -c)
             if [[ $num_commas -lt $WORKER_COUNT ]]; then
-                if grep -q -P '^([[:alnum:]]+\.)*[[:alnum:]]+([,]([[:alnum:]]+\.)*[[:alnum:]]+)*$' <<< $OPTARG; then
+                if grep -q -P '^([[:alnum:]-]+\.)*[[:alnum:]-]+([,]([[:alnum:]-]+\.)*[[:alnum:]-]+)*$' <<< $OPTARG; then
                     IFS=', ' read -r -a NSD_ARRAY <<< "${OPTARG}"
                     NSD_COUNT="${#NSD_ARRAY[@]}"
                     NSD_LIST="${OPTARG}"
@@ -187,7 +195,7 @@ while getopts 'N:C:H:b:i:q:n:d:f:g:t:v:h' opt; do
                 then FS_NAME=${OPTARG}
                 else echo "! Wrong arg -$opt"; exit 1
             fi ;;
-        g) 
+        g)
             if grep -q -P '^(yes|no)$' <<< $OPTARG; then
                 MON_DEPLOY="${OPTARG}"
             else
@@ -200,7 +208,7 @@ while getopts 'N:C:H:b:i:q:n:d:f:g:t:v:h' opt; do
                 echo "! Wrong arg -$opt"; exit 1
             fi ;;
         v) # GPFS version must match pre-installed release
-            GPFS_PRE_INSTALLED=$(ssh ${workers[0]} sudo ls /usr/lpp/mmfs | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$')
+            GPFS_PRE_INSTALLED=$(ssh -l core ${workers[0]} ls /home/core | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$')
             if [[ "$OPTARG" == "$GPFS_PRE_INSTALLED" ]]; then
                 VERSION=${OPTARG}
             else
@@ -262,7 +270,7 @@ fi
 
 if [[ "$MON_DEPLOY" == "yes" ]]; then
   PASSWORD=$(openssl rand -base64 20 | tr -dc 'a-zA-Z0-9' | fold -w 16 | head -n 1)
-  MASTER_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+  MASTER_IP=$(kubectl get nodes -lnode-role.kubernetes.io/master="" -ojsonpath="{.items[*].status.addresses[0].address}")
   cp "$TEMPLATES_DIR/prometheus-server-pvc.yaml" "prometheus-server-pvc.yaml"
   cp "$TEMPLATES_DIR/grafana-server-pvc.yaml" "grafana-server-pvc.yaml"
   cp "$TEMPLATES_DIR/prometheus.values.yaml" "prometheus.yaml"
@@ -390,11 +398,11 @@ g=1
 count=1;
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
     j=`expr $i + 1`
-    scp hosts centos@"${HOST_ARRAY[$i]}": > /dev/null 2>&1
-    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/mgr$j/var_mmfs\""
-    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/mgr$j/root_ssh\""
-    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mkdir -p /root/mgr$j/etc_ssh\""
-    ssh "${HOST_ARRAY[$i]}" -l centos "sudo su - -c \"mv /home/centos/hosts /root/mgr$j/\""
+    scp hosts core@"${HOST_ARRAY[$i]}": > /dev/null 2>&1
+    ssh "${HOST_ARRAY[$i]}" -l core "sudo su - -c \"mkdir -p /root/mgr$j/var_mmfs\""
+    ssh "${HOST_ARRAY[$i]}" -l core "sudo su - -c \"mkdir -p /root/mgr$j/root_ssh\""
+    ssh "${HOST_ARRAY[$i]}" -l core "sudo su - -c \"mkdir -p /root/mgr$j/etc_ssh\""
+    ssh "${HOST_ARRAY[$i]}" -l core "sudo su - -c \"mv /home/core/hosts /root/mgr$j/\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
@@ -460,7 +468,7 @@ do
   for i in $(seq 1 $HOST_COUNT)
   do
     j=`expr $i - 1`
-    ssh "${HOST_ARRAY[$j]}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it $pod -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
+    ssh "${HOST_ARRAY[$j]}" -l core "echo \""$(kubectl -n $NAMESPACE exec -it $pod -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
   done
 done
 for pod1 in ${pods[@]}

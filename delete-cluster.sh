@@ -25,11 +25,11 @@ do
   CLI_FILE="./gpfs-instance-$namespace/gpfs-cli${i}.yaml"
   if [ -f "$MGR_FILE" ]; then
     HOST_NAME=$(cat $MGR_FILE | grep nodeName | awk '{print $2}')
-    ssh $HOST_NAME -l centos "sudo su - -c \"rm -rf /root/mgr*\""
+    ssh $HOST_NAME -l core "sudo su - -c \"rm -rf /root/mgr*\""
   fi
   if [ -f "$CLI_FILE" ]; then
     HOST_NAME=$(cat $CLI_FILE | grep nodeName | awk '{print $2}')
-    ssh $HOST_NAME -l centos "sudo su - -c \"rm -rf /root/cli*\""
+    ssh $HOST_NAME -l core "sudo su - -c \"rm -rf /root/cli*\""
   fi
 done
 GRAFANA_FILE="./gpfs-instance-$namespace/grafana.yaml"

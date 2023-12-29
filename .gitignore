@@ -1,2 +1,5 @@
 gpfs-instance-*/
 *.json
+*.tar.gz
+calicoctl
+[0-9].[0-9].[0-9]-[0-9]/

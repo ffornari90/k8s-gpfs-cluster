@@ -47,7 +47,7 @@ spec:
             mountPath: /root/node.list
             subPath: node.list
           - name: installdir
-            mountPath: /usr/lpp
+            mountPath: /usr/lpp/mmfs
           - name: hostsfile
             mountPath: /etc/hosts
           - name: gendir
@@ -67,21 +67,16 @@ spec:
           defaultMode: 0644
       - name: installdir
         hostPath:
-          path: /usr/lpp
-          type: Directory
+          path: /home/core
       - name: hostsfile
         hostPath:
           path: /root/mgr%%%NUMBER%%%/hosts
-          type: File
       - name: gendir
         hostPath:
           path: /root/mgr%%%NUMBER%%%/var_mmfs
-          type: Directory
       - name: etcsshdir
         hostPath:
           path: /root/mgr%%%NUMBER%%%/etc_ssh
-          type: Directory
       - name: rootsshdir
         hostPath:
           path: /root/mgr%%%NUMBER%%%/root_ssh
-          type: Directory
