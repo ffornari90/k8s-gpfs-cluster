@@ -1,20 +1,30 @@
 #!/bin/bash
-if ! [ $# -eq 2 ]; then
-  echo "No arguments supplied. Please provide GPFS and calicoctl version as arguments."
+if ! [ $# -eq 3 ]; then
+  echo "No arguments supplied. Please provide GPFS version, calicoctl version and k8s master node IP as arguments."
   exit 1
 fi
 GPFS_VERSION=$1
 CALICOCTL_VERSION=$2
+K8S_MASTER_IP=$3
 curl -L https://github.com/projectcalico/calico/releases/download/v${CALICOCTL_VERSION}/calicoctl-linux-amd64 -o calicoctl
 chmod +x ./calicoctl
 kinit ${USER}@CERN.CH
 klist
-xrdcp root://eosuser.cern.ch//eos/user/${USER::1}/${USER}/gpfs-${GPFS_VERSION}.tar.gz .
-tar xzvf gpfs-${GPFS_VERSION}.tar.gz
+xrdcp -r root://eosuser.cern.ch//eos/user/${USER::1}/${USER}/gpfs/${GPFS_VERSION} .
 if ! test -d "${GPFS_VERSION}"; then
   echo "This GPFS release is not present. Exiting."
   exit 1
 fi
+ssh -l core ${K8S_MASTER_IP} 'sudo cp /etc/kubernetes/admin.conf .'
+ssh -l core ${K8S_MASTER_IP} 'sudo cp -r /etc/kubernetes/certs .'
+ssh -l core ${K8S_MASTER_IP} 'sudo chown core:core -R admin.conf certs'
+rm -rf $HOME/.kube
+mkdir -p $HOME/.kube
+scp core@${K8S_MASTER_IP}:admin.conf $HOME/.kube/config
+scp -r core@${K8S_MASTER_IP}:certs $HOME/.kube/
+sed -i 's#/etc/kubernetes#'$HOME'/.kube#g' $HOME/.kube/config
+sed -i 's/127.0.0.1/'${K8S_MASTER_IP}'/g' $HOME/.kube/config
+export KUBECONFIG=$HOME/.kube/config
 kubectl label node $(kubectl get nodes -lnode-role.kubernetes.io/master="" -ojsonpath="{.items[*].metadata.name}") kubernetes.io/role=ingress
 workers=(`kubectl get nodes | grep node | awk '{print $1}'`)
 for worker in ${workers[@]}
@@ -22,17 +32,13 @@ do
     kubectl label node $worker node-role.kubernetes.io/worker=""
     ssh -l core $worker 'mkdir -p mmfs'
     scp -r "${GPFS_VERSION}" core@$worker:mmfs/
-    ssh -l core $worker 'curl -L "https://kojipkgs.fedoraproject.org//packages/kernel/6.6.3/100.fc38/x86_64/kernel-6.6.3-100.fc38.x86_64.rpm" -o kernel-6.6.3-100.fc38.x86_64.rpm'
-    ssh -l core $worker 'curl -L "https://kojipkgs.fedoraproject.org//packages/kernel/6.6.3/100.fc38/x86_64/kernel-core-6.6.3-100.fc38.x86_64.rpm" -o kernel-core-6.6.3-100.fc38.x86_64.rpm'
-    ssh -l core $worker 'curl -L "https://kojipkgs.fedoraproject.org//packages/kernel/6.6.3/100.fc38/x86_64/kernel-modules-6.6.3-100.fc38.x86_64.rpm" -o kernel-modules-6.6.3-100.fc38.x86_64.rpm'
-    ssh -l core $worker 'curl -L "https://kojipkgs.fedoraproject.org//packages/kernel/6.6.3/100.fc38/x86_64/kernel-modules-core-6.6.3-100.fc38.x86_64.rpm" -o kernel-modules-core-6.6.3-100.fc38.x86_64.rpm'
-    ssh -l core $worker 'sudo rpm-ostree override replace kernel-6.6.3-100.fc38.x86_64.rpm kernel-core-6.6.3-100.fc38.x86_64.rpm kernel-modules-6.6.3-100.fc38.x86_64.rpm kernel-modules-core-6.6.3-100.fc38.x86_64.rpm'
+    ssh -l core $worker 'sudo rpm-ostree override replace https://repo.almalinux.org/almalinux/9/BaseOS/x86_64/os/Packages/kernel-{,core-,modules-,modules-core-}5.14.0-362.8.1.el9_3.x86_64.rpm'
     ssh -l core $worker 'sudo systemctl reboot'
     sleep 10
 done
 for worker in ${workers[@]}
 do
-    ssh -l core $worker 'sudo rpm-ostree install kernel-headers-6.6.3-100.fc38.x86_64 kernel-devel-6.6.3-100.fc38.x86_64'
+    ssh -l core $worker 'sudo rpm-ostree install https://repo.almalinux.org/almalinux/9/AppStream/x86_64/os/Packages/kernel-{headers-,devel-}5.14.0-362.8.1.el9_3.x86_64.rpm'
     ssh -l core $worker 'sudo systemctl reboot'
     sleep 10
 done
