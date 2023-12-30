@@ -1,0 +1,6 @@
+[baseos-el8]
+name=Almalinux BaseOS Repository
+baseurl=https://repo.almalinux.org/almalinux/8/BaseOS/x86_64/os
+gpgcheck=0
+enabled=0
+protect=0
