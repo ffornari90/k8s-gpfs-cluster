@@ -7,8 +7,8 @@ RUN rpm -ivh https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.
     microdnf clean all && \
     rm -rf /var/cache/* && \
     microdnf --enablerepo=crb install -y python3 python3-devel python3-pip git \
-    perl initscripts iproute hostname which dmidecode cronie \
-    make cpp gcc gcc-c++ elfutils-devel elfutils openssl \
+    perl initscripts iproute hostname which dmidecode cronie tar \
+    make cpp gcc gcc-c++ elfutils-devel elfutils openssl sudo \
     openssh-server glibc-locale-source glibc-all-langpacks && \
     microdnf clean all && \
     rm -rf /var/cache/*
