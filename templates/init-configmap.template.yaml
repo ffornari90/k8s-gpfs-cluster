@@ -13,11 +13,11 @@ data:
    gpgcheck=0
    [zimon]
    name=zimon packages
-   baseurl=file:///usr/lpp/mmfs/%%%VERSION%%%/zimon_rpms/rhel7/
+   baseurl=file:///usr/lpp/mmfs/%%%VERSION%%%/zimon_rpms/rhel8/
    enabled=1
    gpgcheck=0" | tee /etc/yum.repos.d/gpfs.repo
-   yum install -y sudo cronie gpfs.base gpfs.docs gpfs.ext gpfs.gpl gpfs.gskit gpfs.msg.en_US \
-   gpfs.gss.pmsensors-%%%VERSION%%%.el7.x86_64 gpfs.gss.pmcollector-%%%VERSION%%%.el7.x86_64
+   microdnf install -y gpfs.base gpfs.docs gpfs.ext gpfs.gpl gpfs.gskit gpfs.msg.en_US \
+   gpfs.gss.pmsensors-%%%VERSION%%%.el8.x86_64 gpfs.gss.pmcollector-%%%VERSION%%%.el8.x86_64
    echo "Defaults:gpfs_exporter !syslog
    Defaults:gpfs_exporter !requiretty
    gpfs_exporter ALL=(ALL) NOPASSWD:/usr/lpp/mmfs/bin/mmgetstate -Y
