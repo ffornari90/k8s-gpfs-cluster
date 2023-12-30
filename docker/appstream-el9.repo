@@ -1,0 +1,6 @@
+[appstream-el9]
+name=Almalinux AppStream Repository
+baseurl=https://repo.almalinux.org/almalinux/9/AppStream/x86_64/os
+gpgcheck=0
+enabled=0
+protect=0
