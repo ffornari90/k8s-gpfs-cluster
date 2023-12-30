@@ -32,7 +32,7 @@ do
     kubectl label node $worker node-role.kubernetes.io/worker=""
     ssh -l core $worker 'mkdir -p mmfs'
     scp -r "${GPFS_VERSION}" core@$worker:mmfs/
-    ssh -l core $worker 'sudo rpm-ostree override replace https://repo.almalinux.org/almalinux/8/BaseOS/x86_64/os/Packages/kernel-{,core-,modules-,modules-core-}4.18.0-513.9.1.el8_9.x86_64.rpm'
+    ssh -l core $worker 'sudo rpm-ostree override replace https://repo.almalinux.org/almalinux/8/BaseOS/x86_64/os/Packages/kernel-{,core-,modules-,modules-extra-}4.18.0-513.9.1.el8_9.x86_64.rpm'
     ssh -l core $worker 'sudo systemctl reboot'
     sleep 10
 done
