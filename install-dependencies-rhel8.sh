@@ -30,19 +30,23 @@ workers=(`kubectl get nodes | grep node | awk '{print $1}'`)
 for worker in ${workers[@]}
 do
     kubectl label node $worker node-role.kubernetes.io/worker=""
+done
+workers_ip=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].status.addresses[0].address}"`)
+for worker in ${workers_ip[@]}
+do
     ssh -l core $worker 'mkdir -p mmfs'
     scp -r "${GPFS_VERSION}" core@$worker:mmfs/
     ssh -l core $worker 'sudo rpm-ostree override replace https://repo.almalinux.org/almalinux/8/BaseOS/x86_64/os/Packages/kernel-{,core-,modules-}4.18.0-513.9.1.el8_9.x86_64.rpm'
     ssh -l core $worker 'sudo systemctl reboot'
     sleep 10
 done
-for worker in ${workers[@]}
+for worker in ${workers_ip[@]}
 do
     ssh -l core $worker 'sudo rpm-ostree install --disablerepo * https://repo.almalinux.org/almalinux/8/BaseOS/x86_64/os/Packages/kernel-modules-extra-4.18.0-513.9.1.el8_9.x86_64.rpm'
     ssh -l core $worker 'sudo systemctl reboot'
     sleep 10
 done
-for worker in ${workers[@]}
+for worker in ${workers_ip[@]}
 do
     ssh -l core $worker 'sudo rpm-ostree install https://repo.almalinux.org/almalinux/8/BaseOS/x86_64/os/Packages/kernel-{headers-,devel-}4.18.0-513.9.1.el8_9.x86_64.rpm'
     ssh -l core $worker 'sudo systemctl reboot'
