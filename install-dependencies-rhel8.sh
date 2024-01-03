@@ -42,13 +42,13 @@ do
 done
 for worker in ${workers_ip[@]}
 do
-    ssh -l core $worker 'sudo rpm-ostree install --disablerepo * https://repo.almalinux.org/almalinux/8/BaseOS/x86_64/os/Packages/kernel-modules-extra-4.18.0-513.9.1.el8_9.x86_64.rpm'
+    ssh -l core $worker 'sudo rpm-ostree install --disablerepo * https://repo.almalinux.org/almalinux/8/BaseOS/x86_64/os/Packages/kernel-{modules-extra-,headers-,devel-}4.18.0-513.9.1.el8_9.x86_64.rpm'
+    ssh -l core $worker 'sudo sed -i "s/SELINUX=enforcing/SELINUX=disabled/g" /etc/selinux/config'
     ssh -l core $worker 'sudo systemctl reboot'
     sleep 10
 done
 for worker in ${workers_ip[@]}
 do
-    ssh -l core $worker 'sudo rpm-ostree install https://repo.almalinux.org/almalinux/8/BaseOS/x86_64/os/Packages/kernel-{headers-,devel-}4.18.0-513.9.1.el8_9.x86_64.rpm'
     ssh -l core $worker 'sudo systemctl reboot'
     sleep 10
 done
