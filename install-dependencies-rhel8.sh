@@ -47,7 +47,10 @@ do
     ssh -l core $worker 'sudo systemctl reboot'
     sleep 10
 done
-
+helm repo add nginx-stable https://helm.nginx.com/stable
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
 #sudo sed -i '/\[ req \]/a req_extensions = req_ext' /etc/pki/tls/openssl.cnf
 #echo '[ req_ext ]' | sudo tee -a /etc/pki/tls/openssl.cnf > /dev/null
 #echo 'subjectAltName = @alt_names' | sudo tee -a /etc/pki/tls/openssl.cnf > /dev/null
