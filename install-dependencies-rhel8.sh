@@ -31,6 +31,13 @@ for worker in ${workers[@]}
 do
     kubectl label node $worker node-role.kubernetes.io/worker=""
 done
+helm repo add nginx-stable https://helm.nginx.com/stable
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo add openebs https://openebs.github.io/charts
+helm repo update
+kubectl create namespace openebs
+helm install openebs openebs/openebs --version 3.3.1 --namespace openebs --kubeconfig $HOME/.kube/config
 workers_ip=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].status.addresses[0].address}"`)
 for worker in ${workers_ip[@]}
 do
@@ -47,13 +54,6 @@ do
     ssh -l core $worker 'sudo systemctl reboot'
     sleep 10
 done
-helm repo add nginx-stable https://helm.nginx.com/stable
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo add grafana https://grafana.github.io/helm-charts
-helm repo add openebs https://openebs.github.io/charts
-helm repo update
-kubectl create namespace openebs
-helm install openebs openebs/openebs --version 3.3.1 --namespace openebs --kubeconfig $HOME/.kube/config
 #sudo sed -i '/\[ req \]/a req_extensions = req_ext' /etc/pki/tls/openssl.cnf
 #echo '[ req_ext ]' | sudo tee -a /etc/pki/tls/openssl.cnf > /dev/null
 #echo 'subjectAltName = @alt_names' | sudo tee -a /etc/pki/tls/openssl.cnf > /dev/null
