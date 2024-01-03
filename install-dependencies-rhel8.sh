@@ -47,11 +47,6 @@ do
     ssh -l core $worker 'sudo systemctl reboot'
     sleep 10
 done
-for worker in ${workers_ip[@]}
-do
-    ssh -l core $worker 'sudo systemctl reboot'
-    sleep 10
-done
 
 #sudo sed -i '/\[ req \]/a req_extensions = req_ext' /etc/pki/tls/openssl.cnf
 #echo '[ req_ext ]' | sudo tee -a /etc/pki/tls/openssl.cnf > /dev/null
