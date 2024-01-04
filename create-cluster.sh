@@ -271,8 +271,8 @@ fi
 if [[ "$MON_DEPLOY" == "yes" ]]; then
   PASSWORD=$(openssl rand -base64 20 | tr -dc 'a-zA-Z0-9' | fold -w 16 | head -n 1)
   MASTER_IP=$(kubectl get nodes -lnode-role.kubernetes.io/master="" -ojsonpath="{.items[*].status.addresses[0].address}")
-  cp "$TEMPLATES_DIR/prometheus-server-pvc.yaml" "prometheus-server-pvc.yaml"
-  cp "$TEMPLATES_DIR/grafana-server-pvc.yaml" "grafana-server-pvc.yaml"
+  #cp "$TEMPLATES_DIR/prometheus-server-pvc.yaml" "prometheus-server-pvc.yaml"
+  #cp "$TEMPLATES_DIR/grafana-server-pvc.yaml" "grafana-server-pvc.yaml"
   cp "$TEMPLATES_DIR/prometheus.values.yaml" "prometheus.yaml"
   cp "$TEMPLATES_DIR/grafana.values.yaml" "grafana.yaml"
   cp "$TEMPLATES_DIR/prometheus-ingress.yaml" "prometheus-ingress.yaml"
@@ -521,10 +521,10 @@ $(echo ${TARGETS})\
   rm -f "prometheus.yaml.tmp"
   sed -i "s/%%%CLUSTER_NAME%%%/${CLUSTER_NAME}/g" "prometheus.yaml"
   sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "prometheus.yaml"
-  kubectl apply -f "prometheus-server-pvc.yaml"
+  #kubectl apply -f "prometheus-server-pvc.yaml"
   helm install -f "prometheus.yaml" prometheus prometheus-community/prometheus
   kubectl apply -f "prometheus-ingress.yaml"
-  kubectl apply -f "grafana-server-pvc.yaml"
+  #kubectl apply -f "grafana-server-pvc.yaml"
   helm install -f "grafana.yaml" grafana grafana/grafana
   kubectl apply -f "grafana-ingress.yaml"
 fi

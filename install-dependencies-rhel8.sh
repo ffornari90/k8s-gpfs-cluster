@@ -25,16 +25,17 @@ scp -r core@${K8S_MASTER_IP}:certs $HOME/.kube/
 sed -i 's#/etc/kubernetes#'$HOME'/.kube#g' $HOME/.kube/config
 sed -i 's/127.0.0.1/'${K8S_MASTER_IP}'/g' $HOME/.kube/config
 export KUBECONFIG=$HOME/.kube/config
-kubectl label node $(kubectl get nodes -lnode-role.kubernetes.io/master="" -ojsonpath="{.items[*].metadata.name}") kubernetes.io/role=ingress
 workers=(`kubectl get nodes | grep node | awk '{print $1}'`)
 for worker in ${workers[@]}
 do
     kubectl label node $worker node-role.kubernetes.io/worker=""
 done
+kubectl label node $(kubectl get nodes -lnode-role.kubernetes.io/master="" -ojsonpath="{.items[*].metadata.name}") kubernetes.io/role=ingress
 workers_ip=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].status.addresses[0].address}"`)
 for worker in ${workers_ip[@]}
 do
     ssh -l core $worker 'mkdir -p mmfs'
+    ssh -l core $worker 'sudo mkdir -p /mnt/grafana /mnt/prometheus'
     scp -r "${GPFS_VERSION}" core@$worker:mmfs/
     ssh -l core $worker 'sudo rpm-ostree override replace https://repo.almalinux.org/almalinux/8/BaseOS/x86_64/os/Packages/kernel-{,core-,modules-}4.18.0-513.9.1.el8_9.x86_64.rpm'
     ssh -l core $worker 'sudo systemctl reboot'
@@ -50,12 +51,4 @@ done
 helm repo add nginx-stable https://helm.nginx.com/stable
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo add grafana https://grafana.github.io/helm-charts
-helm repo add openebs https://openebs.github.io/charts
 helm repo update
-kubectl create namespace openebs
-helm install -n openebs openebs openebs/openebs --set localprovisioner.basePath="/var/openebs/local"
-#sudo sed -i '/\[ req \]/a req_extensions = req_ext' /etc/pki/tls/openssl.cnf
-#echo '[ req_ext ]' | sudo tee -a /etc/pki/tls/openssl.cnf > /dev/null
-#echo 'subjectAltName = @alt_names' | sudo tee -a /etc/pki/tls/openssl.cnf > /dev/null
-#echo '[ alt_names ]' | sudo tee -a /etc/pki/tls/openssl.cnf > /dev/null
-#echo 'IP.1 = ' | sudo tee -a /etc/pki/tls/openssl.cnf > /dev/null

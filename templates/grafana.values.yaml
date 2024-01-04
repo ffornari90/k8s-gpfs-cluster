@@ -99,7 +99,7 @@ image:
   #   - myRegistrKeySecretName
 
 testFramework:
-  enabled: true
+  enabled: false
   image: "bats/bats"
   tag: "v1.4.1"
   imagePullPolicy: IfNotPresent
@@ -310,7 +310,7 @@ extraContainerVolumes: []
 ##
 persistence:
   type: pvc
-  enabled: true
+  enabled: false
   # storageClassName: default
   accessModes:
     - ReadWriteOnce
@@ -492,15 +492,14 @@ extraSecretMounts: []
 
 ## Additional grafana server volume mounts
 # Defines additional volume mounts.
-extraVolumeMounts: []
+extraVolumeMounts:
   # - name: extra-volume-0
   #   mountPath: /mnt/volume0
   #   readOnly: true
   #   existingClaim: volume-claim
-  # - name: extra-volume-1
-  #   mountPath: /mnt/volume1
-  #   readOnly: true
-  #   hostPath: /usr/shared/
+  - name: extra-volume-1
+    mountPath: /var/lib
+    readOnly: false
   # - name: grafana-secrets
   #   csi: true
   #   data:
@@ -508,6 +507,12 @@ extraVolumeMounts: []
   #     readOnly: true
   #     volumeAttributes:
   #       secretProviderClass: "grafana-env-spc"
+
+extraVolumes:
+  - name: extra-volume-1
+    hostPath:
+      path: /mnt/grafana
+      type: ""
 
 ## Container Lifecycle Hooks. Execute a specific bash command or make an HTTP request
 lifecycleHooks: {}
