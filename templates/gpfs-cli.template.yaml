@@ -93,7 +93,7 @@ spec:
         args:
         - update-ca-trust &&
           curl https://raw.githubusercontent.com/indigo-iam/egi-trust-anchors-container/main/EGI-trustanchors.repo -o /etc/yum.repos.d/ca.repo &&
-          yum install -y ca-policy-egi-core &&
+          microdnf install -y ca-policy-egi-core &&
           /scripts/init-container.sh
         env:        
         - name: FS_NAME

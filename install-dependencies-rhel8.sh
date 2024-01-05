@@ -52,3 +52,9 @@ helm repo add nginx-stable https://helm.nginx.com/stable
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo add grafana https://grafana.github.io/helm-charts
 helm repo update
+cp /etc/pki/tls/openssl.cnf .
+sed -i '/\[ req \]/a req_extensions = req_ext' openssl.cnf
+echo '[ req_ext ]' | tee -a openssl.cnf > /dev/null
+echo 'subjectAltName = @alt_names' | tee -a openssl.cnf > /dev/null
+echo '[ alt_names ]' | tee -a openssl.cnf > /dev/null
+echo 'IP.1 = ' | tee -a openssl.cnf > /dev/null

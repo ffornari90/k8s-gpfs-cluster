@@ -52,9 +52,9 @@ function gen_role () {
     workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -o=jsonpath='{range .items[1:]}{.metadata.name}{"\n"}{end}'`)
     RANDOM=$$$(date +%s)
     selected_worker=${workers[ $RANDOM % ${#workers[@]} ]}
-    CIDR="$(calicoctl ipam check | grep host:${selected_worker}: | awk '{print $3}')"
+    CIDR="$(${PWD}/../calicoctl ipam check | grep host:${selected_worker}: | awk '{print $3}')"
     IP_LIST=($(nmap -sL $CIDR | awk '/Nmap scan report/{print $NF}' | grep -v '^$'))
-    ALLOCATED_IPS=($(calicoctl ipam check --show-all-ips | grep node=${selected_worker} | awk '{print $1}'))
+    ALLOCATED_IPS=($(${PWD}/../calicoctl ipam check --show-all-ips | grep node=${selected_worker} | awk '{print $1}'))
     for k in "${ALLOCATED_IPS[@]}"
     do
       for l in "${!IP_LIST[@]}"
@@ -64,9 +64,17 @@ function gen_role () {
         fi
       done
     done
+    pod_ip=""
+    while true; do
+        index=$((1 + $RANDOM % ${#IP_LIST[@]}))
+        if [ -n "${IP_LIST[index-1]}" ]; then
+            pod_ip="${IP_LIST[index-1]}"
+            break
+        fi
+    done
     sed -i "s/%%%NODENAME%%%/${selected_worker}/g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%PODNAME%%%/${selected_worker%%.*}-gpfs-${role}-${index}/g" "gpfs-${role}${index}.yaml"
-    sed -i "s/%%%POD_IP%%%/${IP_LIST[ $RANDOM % ${#IP_LIST[@]} ]}/g" "gpfs-${role}${index}.yaml"
+    sed -i "s/%%%POD_IP%%%/${pod_ip}/g" "gpfs-${role}${index}.yaml"
 }
 
 function k8s-exec() {
@@ -182,7 +190,7 @@ kubectl apply -f "storm-webdav-svc.yaml"
 kubectl apply -f "storm-webdav-configmap.yaml"
 
 POD_IP=$(cat gpfs-cli${index}.yaml | grep ipAddrs | awk -F'\' '{print $2}' | sed 's/\"//g')
-sudo sed -i 's/\(IP.1 =\)\(.*\)/\1 '"${POD_IP}"'/g' /etc/pki/tls/openssl.cnf
+sed -i 's/\(IP.1 =\)\(.*\)/\1 '"${POD_IP}"'/g' ${PWD}/../openssl.cnf
 
 if [ ! -d "cacerts" ]; then
   mkdir -p "cacerts"
@@ -201,11 +209,11 @@ openssl genrsa -out certs${index}/private.key 4096
 openssl req -new -sha256 -key certs${index}/private.key \
  -subj "/CN=storm-webdav-$NAMESPACE.novalocal" \
  -out certs${index}/public.csr \
- -config /etc/pki/tls/openssl.cnf
+ -config ${PWD}/../openssl.cnf
 openssl x509 -req -in certs${index}/public.csr \
  -CA cacerts/swCA.crt -CAkey cacerts/swCA.key -CAcreateserial \
  -out certs${index}/public.crt -days 365 -sha256 \
- -extensions req_ext -extfile /etc/pki/tls/openssl.cnf
+ -extensions req_ext -extfile ${PWD}/../openssl.cnf
 cp cacerts/swCA.crt certs${index}/ca.crt
 
 kubectl create secret generic \
@@ -234,11 +242,11 @@ CLI_FILE="./gpfs-cli${index}.yaml"
 HOST_NAME=$(cat $CLI_FILE | grep nodeName | awk '{print $2}')
 POD_NAME="$(cat $CLI_FILE | grep -m1 name | awk '{print $2}')-0"
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
-    scp hosts centos@"${HOST_NAME}": > /dev/null 2>&1
-    ssh "${HOST_NAME}" -l centos "sudo su - -c \"mkdir -p /root/cli${index}/var_mmfs\""
-    ssh "${HOST_NAME}" -l centos "sudo su - -c \"mkdir -p /root/cli${index}/root_ssh\""
-    ssh "${HOST_NAME}" -l centos "sudo su - -c \"mkdir -p /root/cli${index}/etc_ssh\""
-    ssh "${HOST_NAME}" -l centos "sudo su - -c \"mv /home/centos/hosts /root/cli${index}/\""
+    scp hosts core@"${HOST_NAME}": > /dev/null 2>&1
+    ssh "${HOST_NAME}" -l core "sudo su - -c \"mkdir -p /root/cli${index}/var_mmfs\""
+    ssh "${HOST_NAME}" -l core "sudo su - -c \"mkdir -p /root/cli${index}/root_ssh\""
+    ssh "${HOST_NAME}" -l core "sudo su - -c \"mkdir -p /root/cli${index}/etc_ssh\""
+    ssh "${HOST_NAME}" -l core "sudo su - -c \"mv /home/core/hosts /root/cli${index}/\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
@@ -287,7 +295,7 @@ for i in $(seq 0 $size)
 do
   printf '%s %s\n' "${svcs[$i]}" "${pods[$i]}" | tee -a hosts.tmp
 done
-printf '%s %s\n' "131.154.162.124" "iam-indigo.cr.cnaf.infn.it" | tee -a hosts.tmp
+#printf '%s %s\n' "131.154.162.124" "iam-indigo.cr.cnaf.infn.it" | tee -a hosts.tmp
 
 for pod in ${pods[@]}
 do
@@ -308,25 +316,25 @@ cli_pods=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-cli -ojsonpath="{.items[*].
 for i in $(seq 1 ${#mgr_pods[@]})
 do
   j=`expr $i - 1`
-  ssh "${HOST_NAME}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${mgr_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
+  ssh "${HOST_NAME}" -l core "echo \""$(kubectl -n $NAMESPACE exec -it ${mgr_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
 done
 
 for i in $(seq 1 ${#cli_pods[@]})
 do
   j=`expr $i - 1`
-  ssh "${HOST_NAME}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${cli_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
+  ssh "${HOST_NAME}" -l core "echo \""$(kubectl -n $NAMESPACE exec -it ${cli_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
 done
 
 for i in $(seq 1 ${#mgr_hosts[@]})
 do
   j=`expr $i - 1`
-  ssh "${mgr_hosts[$j]}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
+  ssh "${mgr_hosts[$j]}" -l core "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
 done
 
 for i in $(seq 1 ${#cli_hosts[@]})
 do
   j=`expr $i - 1`
-  ssh "${cli_hosts[$j]}" -l centos "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$i/root_ssh/authorized_keys"
+  ssh "${cli_hosts[$j]}" -l core "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$i/root_ssh/authorized_keys"
 done
 
 for pod in ${cli_pods[@]}
