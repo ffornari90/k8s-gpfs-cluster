@@ -100,7 +100,7 @@ fi
 # defaults
 NAMESPACE="ns$(date +%s)"
 CC_IMAGE_REPO="ffornari/gpfs-storm-webdav"
-CC_IMAGE_TAG="centos7"
+CC_IMAGE_TAG="rhel8"
 HOST_COUNT=0
 TIMEOUT=3600
 VERSION=5.1.2-8

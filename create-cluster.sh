@@ -115,7 +115,7 @@ fi
 NAMESPACE="ns$(date +%s)"
 CLUSTER_NAME="gpfs$(date +%s)"
 CC_IMAGE_REPO="ffornari/gpfs-mgr"
-CC_IMAGE_TAG="centos7"
+CC_IMAGE_TAG="rhel8"
 HOST_LIST=""
 NSD_LIST=""
 DEVICE_LIST=""
