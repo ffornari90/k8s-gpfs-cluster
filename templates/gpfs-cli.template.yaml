@@ -96,6 +96,7 @@ spec:
         command: [sh, -c]
         args:
         - update-ca-trust &&
+          rpm --import https://dist.eugridpma.info/distribution/igtf/current/GPG-KEY-EUGridPMA-RPM-3 &&
           curl https://raw.githubusercontent.com/indigo-iam/egi-trust-anchors-container/main/EGI-trustanchors.repo -o /etc/yum.repos.d/ca.repo &&
           microdnf install -y ca-policy-egi-core &&
           /scripts/init-container.sh
