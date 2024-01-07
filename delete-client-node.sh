@@ -39,6 +39,6 @@ do
   kubectl -n $namespace exec $mgr -- bash -c "sed -i \"/"$CLI_POD_NAME"/d\" /root/.ssh/known_hosts"
   kubectl -n $namespace exec $mgr -- bash -c "sed -i \"/"$CLI_POD_NAME"/d\" /root/.ssh/authorized_keys"
 done
-ssh $HOST_NAME -l centos "sudo su - -c \"rm -rf /root/cli${OFFSET}\""
+ssh $HOST_NAME -l core "sudo su - -c \"rm -rf /root/cli${OFFSET}\""
 rm -rf "./gpfs-instance-$namespace/cli-svc${OFFSET}.yaml"
 rm -rf "./gpfs-instance-$namespace/gpfs-cli${OFFSET}.yaml"

@@ -9,7 +9,7 @@ data:
     oauth:
       issuers:
         - name: iam-indigo
-          issuer: https://iam-indigo.cr.cnaf.infn.it/
+          issuer: https://%%%OIDC_PROVIDER%%%/
 
 ---
 apiVersion: v1
@@ -27,6 +27,6 @@ data:
     # Comma separated list of storage area access points. 
     accessPoints=/indigo-dc
     # Comma-separated list of OAuth/OpenID Connect token issuers trusted in this storage area
-    orgs=https://iam-indigo.cr.cnaf.infn.it/
+    orgs=https://%%%OIDC_PROVIDER%%%/
     # Enables write access to storage area files to users authenticated using OAuth/OIDC. Defaults to false.
     orgsGrantWritePermission=true

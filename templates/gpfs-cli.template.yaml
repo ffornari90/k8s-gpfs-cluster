@@ -1,3 +1,6 @@
+---
+
+### DEPLOYMENT ###
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -73,7 +76,8 @@ spec:
             for tgz in $(cat index.html | awk -F'"' '{print $2}' | grep tar.gz);
             do wget http://repository.egi.eu/sw/production/cas/1/current/tgz/$tgz -O tgz/$tgz;
             done && for tgz in $(ls tgz/);
-            do tar xzf tgz/$tgz --strip-components=1 -C certs/; done 
+            do tar xzf tgz/$tgz --strip-components=1 -C certs/; done &&
+            if [ -d .iam ]; then cp .iam/certs/* certs/; fi
         volumeMounts:
         - name: trust
           mountPath: /tmp/certs

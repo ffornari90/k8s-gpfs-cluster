@@ -1,0 +1,15 @@
+spec:
+  template:
+    spec:
+      initContainers:
+      - name: storm-webdav-ca-bundle
+        volumeMounts:
+          - name: iam-volume
+            mountPath: /tmp/.iam/certs
+      volumes:
+      - name: iam-volume
+        secret:
+          secretName: iam-ca
+          items:
+          - key: %%%IAM_CA%%%
+            path: %%%IAM_CA%%%

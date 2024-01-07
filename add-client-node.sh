@@ -16,15 +16,17 @@ White='\033[0;37m'        # White
 # **************************************************************************** #
 
 function usage () {
-    echo "Usage: $0 [-N <k8s_namespace>] [-b <cc_image_repo>] [-i <cc_image_tag>] [-t <timeout>] [-v <gpfs_version>]"
+    echo "Usage: $0 [-N <k8s_namespace>] [-b <cc_image_repo>] [-i <cc_image_tag>] [-p <oidc_provider>] [-c <iam_ca_file>] [-t <timeout>] [-v <gpfs_version>]"
     echo
     echo "-N    Specify the kubernetes Namespace on which the cluster resides (default is 'ns\$(date +%s)')"
     echo "      It must be a compliant DNS-1123 label and match =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
     echo "      In practice, must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character"
     echo "-b    Specify docker image repository to be used for node creation (default is $CC_IMAGE_REPO)"
     echo "-i    Specify docker image tag to be used for node creation (default is $CC_IMAGE_TAG)"
+    echo "-p    Specify an OIDC provider for StoRM-WebDAV authentication (default is iam-t1-computing.cloud.cnaf.infn.it)"
+    echo "-c    Specify a CA certificate to be used for OIDC provider (default is none)"
     echo "-t    Specify desired timeout for node creation in seconds (default is 3600)"
-    echo "-v    Specify desired GPFS version for node creation (default is 5.1.2-8)"
+    echo "-v    Specify desired GPFS version for node creation (default is 5.1.8-2)"
     echo
     echo "-h    Show usage and exit"
     echo
@@ -33,6 +35,10 @@ function usage () {
 function gen_role () {
     local role=$1
     local fs_name=$2
+    local iam_ca=false
+    local iam_ca_file=$3
+
+    [ $with_iam_ca == true ] && iam_ca=true
 
     image_repo=$CC_IMAGE_REPO
     image_tag=$CC_IMAGE_TAG
@@ -66,15 +72,23 @@ function gen_role () {
     done
     pod_ip=""
     while true; do
-        index=$((1 + $RANDOM % ${#IP_LIST[@]}))
-        if [ -n "${IP_LIST[index-1]}" ]; then
-            pod_ip="${IP_LIST[index-1]}"
+        ip_index=$((1 + $RANDOM % ${#IP_LIST[@]}))
+        if [ -n "${IP_LIST[ip_index-1]}" ]; then
+            pod_ip="${IP_LIST[ip_index-1]}"
             break
         fi
     done
     sed -i "s/%%%NODENAME%%%/${selected_worker}/g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%PODNAME%%%/${selected_worker%%.*}-gpfs-${role}-${index}/g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%POD_IP%%%/${pod_ip}/g" "gpfs-${role}${index}.yaml"
+    if [[ $iam_ca == true ]] && [[ $role == "cli" ]]; then
+        cp "$TEMPLATES_DIR/pv-patch.template.yaml" "pv-patch-${index}.yaml"
+        sed -i "s/%%%IAM_CA%%%/${iam_ca_file}/g" "pv-patch-${index}.yaml"
+        csplit --quiet --prefix=tmp --digit=2 "gpfs-${role}${index}.yaml" "/### DEPLOYMENT ###/+1" "{*}"
+        kubectl patch --local=true -f tmp01 --patch "$(cat pv-patch-${index}.yaml)" -o yaml > tmp02
+        cat tmp00 tmp02 > "gpfs-${role}${index}.yaml"
+        rm -f tmp00 tmp01 tmp02
+    fi
 }
 
 function k8s-exec() {
@@ -103,11 +117,14 @@ CC_IMAGE_REPO="ffornari/gpfs-storm-webdav"
 CC_IMAGE_TAG="rhel8"
 HOST_COUNT=0
 TIMEOUT=3600
-VERSION=5.1.2-8
+VERSION=5.1.8-2
 workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
 WORKER_COUNT="${#workers[@]}"
+with_iam_ca=false
+IAM_CA_FILE=""
+OIDC_PROVIDER="iam-t1-computing.cloud.cnaf.infn.it"
 
-while getopts 'N:b:i:t:v:h' opt; do
+while getopts 'N:b:i:p:c:t:v:h' opt; do
     case "${opt}" in
         N) # a DNS-1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
             if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
@@ -118,6 +135,18 @@ while getopts 'N:b:i:t:v:h' opt; do
             CC_IMAGE_REPO=${OPTARG} ;;
         i)
             CC_IMAGE_TAG=${OPTARG} ;;
+        p)
+            if [[ $OPTARG =~ ^[[:alnum:]][[:alnum:].-]*[[:alnum:]]$ ]];
+                then OIDC_PROVIDER=${OPTARG}
+                else echo "! Wrong arg -$opt"; exit 1
+            fi ;;
+        c)
+            if [[ -f ${OPTARG} ]]; then
+                IAM_CA_FILE=${OPTARG}
+            else
+                echo "! Wrong arg -$opt"; exit 1
+            fi
+            with_iam_ca=true ;;
         t) # timeout must be an integer greater than 0
             if [[ $OPTARG =~ ^[0-9]+$ ]] && [[ $OPTARG -gt 0 ]]; then
                 TIMEOUT=${OPTARG}
@@ -125,7 +154,7 @@ while getopts 'N:b:i:t:v:h' opt; do
                 echo "! Wrong arg -$opt"; exit 1
             fi ;;
         v) # GPFS version must match pre-installed release
-            GPFS_PRE_INSTALLED=$(ssh ${workers[0]} sudo ls /usr/lpp/mmfs | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$')
+            GPFS_PRE_INSTALLED=$(ssh -l core ${workers[0]} ls /home/core/mmfs | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$')
             if [[ "$OPTARG" == "$GPFS_PRE_INSTALLED" ]]; then
                 VERSION=${OPTARG}
             else
@@ -146,7 +175,9 @@ echo "CC_IMAGE_REPO=$CC_IMAGE_REPO"
 echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "TIMEOUT=$TIMEOUT"
 echo "VERSION=$VERSION"
-
+echo "with_iam_ca=$with_iam_ca"
+echo "IAM_CA_FILE=$IAM_CA_FILE"
+echo "OIDC_PROVIDER=$OIDC_PROVIDER"
 
 # **********************************************************************************************
 # Generation of the K8s manifests and configuration scripts for a complete namespaced instance #
@@ -162,7 +193,7 @@ cd $GPFS_INSTANCE_DIR
 FS_NAME=$(k8s-exec gpfs-mgr1 "ls /ibm/")
 
 # Generate the manager manifests
-gen_role cli $FS_NAME
+gen_role cli $FS_NAME $IAM_CA_FILE
 index=$(ls | grep -o 'cli[0-9]\+' | cut -c4- | tail -1)
 printf '\n'
 # Generate the services
@@ -176,6 +207,7 @@ sed -i "s/%%%NUMBER%%%/${index}/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-svc.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-configmap.yaml"
 sed -i "s/%%%FS_NAME%%%/$FS_NAME/g" "storm-webdav-configmap.yaml"
+sed -i "s/%%%OIDC_PROVIDER%%%/$OIDC_PROVIDER/g" "storm-webdav-configmap.yaml"
 
 # **********************************************************************************************
 # Deploy the instance #
@@ -189,7 +221,7 @@ kubectl apply -f "cli-svc${index}.yaml"
 kubectl apply -f "storm-webdav-svc.yaml"
 kubectl apply -f "storm-webdav-configmap.yaml"
 
-POD_IP=$(cat gpfs-cli${index}.yaml | grep ipAddrs | awk -F'\' '{print $2}' | sed 's/\"//g')
+POD_IP=$(cat gpfs-cli${index}.yaml | grep ipAddrs | awk -F'[' '{print $2}' | awk -F']' '{print $1}' | sed 's/\"//g')
 sed -i 's/\(IP.1 =\)\(.*\)/\1 '"${POD_IP}"'/g' ${PWD}/../openssl.cnf
 
 if [ ! -d "cacerts" ]; then
@@ -198,10 +230,10 @@ if [ ! -d "cacerts" ]; then
   openssl req -x509 -new -nodes -key cacerts/swCA.key \
    -sha256 -days 1024 -out cacerts/swCA.crt \
    -subj "/CN=StoRM-WebDAV-CA"
-  CONT_ID=$(docker ps | grep -v POD | grep gpfs-nginx-ingress | awk '{print $1}')
-  docker cp cacerts/swCA.crt $CONT_ID:/tmp/swCA.crt
-  docker exec -u root $CONT_ID /bin/bash -c \
-   'cp /tmp/swCA.crt /usr/local/share/ca-certificates/ && update-ca-certificates'
+  CONT_ID=$(kubectl get po -lapp.kubernetes.io/instance=gpfs -ojsonpath="{.items[*].metadata.name}")
+  kubectl cp cacerts/swCA.crt $CONT_ID:/tmp/swCA.crt
+  ssh -l core $(kubectl get nodes -lnode-role.kubernetes.io/master="" -ojsonpath="{.items[*].metadata.name}") \
+  "sudo runc --root /run/containerd/runc/k8s.io exec -u 0 \$(sudo ls /run/containerd/runc/k8s.io/ | grep \$(sudo crictl ps | grep nginx-ingress | awk '{print \$1}')) /bin/bash -c 'cp /tmp/swCA.crt /usr/local/share/ca-certificates/ && update-ca-certificates'"
 fi
 
 mkdir -p "certs${index}"
@@ -216,12 +248,22 @@ openssl x509 -req -in certs${index}/public.csr \
  -extensions req_ext -extfile ${PWD}/../openssl.cnf
 cp cacerts/swCA.crt certs${index}/ca.crt
 
-kubectl create secret generic \
- tls-ssl-storm-webdav-${index} \
- -n $NAMESPACE \
- --from-file=./certs${index}/private.key \
- --from-file=./certs${index}/public.crt \
- --from-file=./certs${index}/ca.crt
+if ! kubectl get secret tls-ssl-storm-webdav-${index} -n $NAMESPACE &> /dev/null; then
+  kubectl create secret generic \
+   tls-ssl-storm-webdav-${index} \
+   -n $NAMESPACE \
+   --from-file=./certs${index}/private.key \
+   --from-file=./certs${index}/public.crt \
+   --from-file=./certs${index}/ca.crt
+fi
+
+if [ $with_iam_ca == true ]; then
+  if ! kubectl get secret iam-ca -n $NAMESPACE &> /dev/null; then
+    kubectl create secret generic iam-ca \
+     -n $NAMESPACE \
+     --from-file=../${IAM_CA_FILE}
+  fi
+fi
 
 if [ ! -d "certs" ]; then
   mkdir -p "certs"
@@ -295,7 +337,6 @@ for i in $(seq 0 $size)
 do
   printf '%s %s\n' "${svcs[$i]}" "${pods[$i]}" | tee -a hosts.tmp
 done
-#printf '%s %s\n' "131.154.162.124" "iam-indigo.cr.cnaf.infn.it" | tee -a hosts.tmp
 
 for pod in ${pods[@]}
 do
@@ -446,3 +487,6 @@ echo "CC_IMAGE_REPO=$CC_IMAGE_REPO"
 echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "TIMEOUT=$TIMEOUT"
 echo "VERSION=$VERSION"
+echo "with_iam_ca=$with_iam_ca"
+echo "IAM_CA_FILE=$IAM_CA_FILE"
+echo "OIDC_PROVIDER=$OIDC_PROVIDER"
