@@ -12,7 +12,9 @@ RUN rpm -ivh https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.
     openssh-server glibc-locale-source glibc-all-langpacks attr \
     java-11-openjdk java-11-devel jpackage-utils && \
     microdnf clean all && \
-    rm -rf /var/cache/*
+    rm -rf /var/cache/* && \
+    update-alternatives --set java "$(update-alternatives --list | grep -w jre_11 | awk '{print $3}')/bin/java" && \
+    update-alternatives --set javac "$(update-alternatives --list | grep -w jre_11 | awk '{print $3}')/bin/javac"
 RUN pip3 install CherryPy && \
     git clone https://github.com/gdraheim/docker-systemctl-replacement.git && \
     cp docker-systemctl-replacement/files/docker/systemctl3.py /usr/bin/ && \
