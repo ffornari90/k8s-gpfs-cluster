@@ -196,18 +196,32 @@ FS_NAME=$(k8s-exec gpfs-mgr1 "ls /ibm/")
 gen_role cli $FS_NAME $IAM_CA_FILE
 index=$(ls | grep -o 'cli[0-9]\+' | cut -c4- | tail -1)
 printf '\n'
+
+REDIRECT_URI="https://storm-webdav-$NAMESPACE.novalocal/login/oauth2/code/iam-indigo"
+
 # Generate the services
 cp "$TEMPLATES_DIR/hosts.template" "hosts"
 cp "$TEMPLATES_DIR/gpfs-cli-svc.template.yaml" "cli-svc${index}.yaml"
 cp "$TEMPLATES_DIR/storm-webdav-svc.template.yaml" "storm-webdav-svc.yaml"
 cp "$TEMPLATES_DIR/storm-webdav-ingress.template.yaml" "storm-webdav-ingress.yaml"
 cp "$TEMPLATES_DIR/storm-webdav-configmap.template.yaml" "storm-webdav-configmap.yaml"
+cp "$TEMPLATES_DIR/client-req.template.json" "client-req${index}.json"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NUMBER%%%/${index}/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-svc.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-configmap.yaml"
 sed -i "s/%%%FS_NAME%%%/$FS_NAME/g" "storm-webdav-configmap.yaml"
 sed -i "s/%%%OIDC_PROVIDER%%%/$OIDC_PROVIDER/g" "storm-webdav-configmap.yaml"
+sed -i "s#%%%REDIRECT_URI%%%#$REDIRECT_URI#g" "client-req${index}.json"
+
+curl -H "Content-Type: application/json" -d "@client-req${index}.json" -X POST \
+ -sk https://${OIDC_PROVIDER}/iam/api/client-registration > "client${index}.json"
+
+OIDC_CLIENT_ID=$(jq -r '.client_id' "client${index}.json")
+OIDC_CLIENT_SECRET=$(jq -r '.client_secret' "client${index}.json")
+
+sed -i "s/%%%OIDC_CLIENT_ID%%%/$OIDC_CLIENT_ID/g" "storm-webdav-configmap.yaml"
+sed -i "s/%%%OIDC_CLIENT_SECRET%%%/$OIDC_CLIENT_SECRET/g" "storm-webdav-configmap.yaml"
 
 # **********************************************************************************************
 # Deploy the instance #
@@ -472,9 +486,8 @@ k8s-exec gpfs-cli$index "su - storm -c \"cp /tmp/.storm-webdav/certs/private.key
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 k8s-exec gpfs-cli$index "su - storm -c \"cp /tmp/.storm-webdav/certs/public.crt /etc/grid-security/storm-webdav/hostcert.pem\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi
-k8s-exec gpfs-cli$index "su - storm -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
--Dspring.profiles.active=\$STORM_WEBDAV_PROFILE -Dlogging.config=\$STORM_WEBDAV_LOG_CONFIGURATION -jar \$STORM_WEBDAV_JAR \
-> \$STORM_WEBDAV_OUT 2>\$STORM_WEBDAV_ERR\" &" &
+k8s-exec gpfs-cli$index "su - storm -s /bin/sh -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
+-Dspring.profiles.active=\$STORM_WEBDAV_PROFILE -Dlogging.config=\$STORM_WEBDAV_LOG_CONFIGURATION -jar \$STORM_WEBDAV_JAR &>\$STORM_WEBDAV_OUT 2>\$STORM_WEBDAV_ERR\" \&"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 # @todo add error handling

@@ -42,3 +42,5 @@ done
 ssh $HOST_NAME -l core "sudo su - -c \"rm -rf /root/cli${OFFSET}\""
 rm -rf "./gpfs-instance-$namespace/cli-svc${OFFSET}.yaml"
 rm -rf "./gpfs-instance-$namespace/gpfs-cli${OFFSET}.yaml"
+rm -rf "./gpfs-instance-$namespace/client-req${OFFSET}.json"
+rm -rf "./gpfs-instance-$namespace/client${OFFSET}.json"

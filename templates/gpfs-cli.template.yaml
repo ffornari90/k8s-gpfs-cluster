@@ -104,7 +104,7 @@ spec:
         - name: FS_NAME
           value: "%%%FS_NAME%%%"
         - name: STORM_WEBDAV_JVM_OPTS
-          value: "-Xms8384m -Xmx8384m -Djava.security.egd=file:/dev/./urandom -Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false"
+          value: "-Xms4192m -Xmx4192m -Djava.security.egd=file:/dev/./urandom -Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false"
         - name: STORM_WEBDAV_USER
           value: "storm"
         - name: STORM_WEBDAV_PROFILE
@@ -138,9 +138,9 @@ spec:
         - name: STORM_WEBDAV_LOG
           value: "/var/log/storm/webdav/storm-webdav-server.log"
         - name: STORM_WEBDAV_OUT
-          value: "/var/log/storm/webdav/storm-webdav-server.out"
+          value: /var/log/storm/webdav/storm-webdav-server.out
         - name: STORM_WEBDAV_ERR
-          value: "/var/log/storm/webdav/storm-webdav-server.err"
+          value: /var/log/storm/webdav/storm-webdav-server.err
         - name: STORM_WEBDAV_TMPDIR
           value: "/var/lib/storm-webdav/work"
         - name: STORM_WEBDAV_LOG_CONFIGURATION
