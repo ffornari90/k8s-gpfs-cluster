@@ -474,7 +474,7 @@ k8s-exec gpfs-cli$index "su - storm -c \"cp /tmp/.storm-webdav/certs/public.crt 
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 k8s-exec gpfs-cli$index "su - storm -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
 -Dspring.profiles.active=\$STORM_WEBDAV_PROFILE -Dlogging.config=\$STORM_WEBDAV_LOG_CONFIGURATION -jar \$STORM_WEBDAV_JAR \
-> \$STORM_WEBDAV_OUT 2>\$STORM_WEBDAV_ERR\" &"
+> \$STORM_WEBDAV_OUT 2>\$STORM_WEBDAV_ERR\" &" &
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 # @todo add error handling

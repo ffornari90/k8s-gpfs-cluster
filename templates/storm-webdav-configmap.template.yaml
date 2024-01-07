@@ -6,7 +6,25 @@ metadata:
   namespace: %%%NAMESPACE%%%
 data:
   application-indigo.yml: |
+    spring:
+      security:
+        oauth2:
+          client:
+            provider:
+              iam-indigo:
+                issuer-uri: https://%%%OIDC_PROVIDER%%%/
+            registration:
+              iam-indigo:
+                provider: iam-indigo
+                authorization-grant-type: authorization_code
+                client-name: INDIGO IAM
+                client-id: %%%OIDC_CLIENT_ID%%%
+                client-secret: %%%OIDC_CLIENT_SECRET%%%
+                scope:
+                  - openid
+                  - profile
     oauth:
+      enable-oidc: true
       issuers:
         - name: iam-indigo
           issuer: https://%%%OIDC_PROVIDER%%%/
