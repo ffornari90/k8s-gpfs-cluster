@@ -102,6 +102,18 @@ function k8s-exec() {
 }
 
 
+function k8s-exec-bkg() {
+
+    local namespace=$NAMESPACE
+    local app=$1
+    shift
+    local k8cmd="$@"
+    local pod_name=$(kubectl get pods --namespace=$namespace -l app=$app | grep -E '([0-9]+)/\1' | awk '{print $1}')
+
+    kubectl exec --namespace=$namespace $pod_name -- /bin/bash -c "nohup $k8cmd > /dev/null 2>&1 & disown"
+}
+
+
 # **************************************************************************** #
 #                                  Entrypoint                                  #
 # **************************************************************************** #
@@ -486,8 +498,9 @@ k8s-exec gpfs-cli$index "su - storm -c \"cp /tmp/.storm-webdav/certs/private.key
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 k8s-exec gpfs-cli$index "su - storm -c \"cp /tmp/.storm-webdav/certs/public.crt /etc/grid-security/storm-webdav/hostcert.pem\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi
-k8s-exec gpfs-cli$index "su - storm -s /bin/sh -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
--Dspring.profiles.active=\$STORM_WEBDAV_PROFILE -Dlogging.config=\$STORM_WEBDAV_LOG_CONFIGURATION -jar \$STORM_WEBDAV_JAR &>\$STORM_WEBDAV_OUT 2>\$STORM_WEBDAV_ERR\" \&"
+k8s-exec-bkg gpfs-cli$index "su - storm -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
+-Dspring.profiles.active=\$STORM_WEBDAV_PROFILE -Dlogging.config=\$STORM_WEBDAV_LOG_CONFIGURATION -jar \$STORM_WEBDAV_JAR \
+> \$STORM_WEBDAV_OUT 2>\$STORM_WEBDAV_ERR\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 # @todo add error handling
