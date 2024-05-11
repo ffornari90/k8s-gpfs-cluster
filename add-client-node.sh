@@ -249,6 +249,7 @@ kubectl apply -f "storm-webdav-configmap.yaml"
 
 POD_IP=$(cat gpfs-cli${index}.yaml | grep ipAddrs | awk -F'[' '{print $2}' | awk -F']' '{print $1}' | sed 's/\"//g')
 sed -i 's/\(IP.1 =\)\(.*\)/\1 '"${POD_IP}"'/g' ${PWD}/../openssl.cnf
+sed -i 's/\(DNS.1 =\)\(.*\)/\1 '"storm-webdav-${NAMESPACE}.novalocal"'/g' ${PWD}/../openssl.cnf
 
 if [ ! -d "cacerts" ]; then
   mkdir -p "cacerts"

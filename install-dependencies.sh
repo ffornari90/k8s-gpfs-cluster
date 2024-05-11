@@ -58,3 +58,4 @@ echo '[ req_ext ]' | tee -a openssl.cnf > /dev/null
 echo 'subjectAltName = @alt_names' | tee -a openssl.cnf > /dev/null
 echo '[ alt_names ]' | tee -a openssl.cnf > /dev/null
 echo 'IP.1 = ' | tee -a openssl.cnf > /dev/null
+echo 'DNS.1 = ' | tee -a openssl.cnf > /dev/null
