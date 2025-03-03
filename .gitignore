@@ -5,3 +5,6 @@ calicoctl
 [0-9].[0-9].[0-9]-[0-9]/
 openssl.cnf
 *.pem
+kubectl
+get_helm.sh
+*-config

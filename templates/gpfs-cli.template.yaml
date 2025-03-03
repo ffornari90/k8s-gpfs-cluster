@@ -32,7 +32,7 @@ spec:
           defaultMode: 0755
       - name: installdir
         hostPath:
-          path: /home/core
+          path: /home/%%%USER%%%
       - name: hostsfile
         hostPath:
           path: /root/cli%%%NUMBER%%%/hosts
@@ -86,6 +86,7 @@ spec:
       containers:
       - name: %%%PODNAME%%%
         image: %%%IMAGE_REPO%%%:%%%IMAGE_TAG%%%
+        imagePullPolicy: Always
         securityContext:
           privileged: true
         readinessProbe:

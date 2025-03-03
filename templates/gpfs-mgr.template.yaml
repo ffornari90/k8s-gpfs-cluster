@@ -27,6 +27,7 @@ spec:
       containers:
       - name: %%%PODNAME%%%
         image: %%%IMAGE_REPO%%%:%%%IMAGE_TAG%%%
+        imagePullPolicy: Always
         command: [ "/bin/bash", "-c", "--" ]
         args: [ "./scripts/init-container.sh" ]
         env:
@@ -67,7 +68,7 @@ spec:
           defaultMode: 0644
       - name: installdir
         hostPath:
-          path: /home/core
+          path: /home/%%%USER%%%
       - name: hostsfile
         hostPath:
           path: /root/mgr%%%NUMBER%%%/hosts

@@ -1,9 +1,12 @@
 FROM registry.access.redhat.com/ubi8/ubi-minimal
 COPY ./baseos-el8.repo /etc/yum.repos.d/
 RUN rpm -ivh https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm && \
-    rpm -ivh http://mirror.centos.org/centos/8-stream/BaseOS/x86_64/os/Packages/centos-gpg-keys-8-6.el8.noarch.rpm && \
-    rpm -ivh http://mirror.centos.org/centos/8-stream/BaseOS/x86_64/os/Packages/centos-stream-repos-8-6.el8.noarch.rpm && \
-    microdnf --enablerepo=baseos-el8 install -y kernel-{headers-,devel-}4.18.0-513.9.1.el8_9.x86_64 && \
+    rpm -ivh http://vault.centos.org/centos/8-stream/BaseOS/x86_64/os/Packages/centos-gpg-keys-8-6.el8.noarch.rpm && \
+    rpm -ivh http://vault.centos.org/centos/8-stream/BaseOS/x86_64/os/Packages/centos-stream-repos-8-6.el8.noarch.rpm && \
+    sed -i s/mirror.centos.org/vault.centos.org/g /etc/yum.repos.d/*.repo && \
+    sed -i s/^#.*baseurl=http/baseurl=http/g /etc/yum.repos.d/*.repo && \
+    sed -i s/^mirrorlist=http/#mirrorlist=http/g /etc/yum.repos.d/*.repo && \
+    microdnf --enablerepo=baseos-el8 install -y kernel-{headers-,devel-}4.18.0-553.el8_10.x86_64 && \
     microdnf clean all && \
     rm -rf /var/cache/* && \
     microdnf --enablerepo=powertools install -y python3 python3-devel python3-pip git \

@@ -31,7 +31,10 @@ function usage () {
     echo "-d    Specify desired list of devices for NSD nodes (comma separated, e.g.: /dev/sda,/dev/sdb)"
     echo "-f    Specify desired GPFS file system name (mountpoint is /ibm/<fs_name>)"
     echo "-g    Specify if monitoring with Prometheus and Grafana has to be deployed (default is no)"
+    echo "-k    Specify SSH key path for cluster creation (default is ~/.ssh/id_rsa)"
+    echo "-j    Specify jump host for cluster creation (default is jumphost)"
     echo "-t    Specify desired timeout for Pods creation in seconds (default is 3600)"
+    echo "-u    Specify user to perform cluster creation (default is core)"
     echo "-v    Specify desired GPFS version for cluster creation (default is 5.1.8-2)"
     echo
     echo "-h    Show usage and exit"
@@ -54,20 +57,21 @@ function gen_role () {
         ip_index=${ip_indices[$j]}
         cp "$TEMPLATES_DIR/gpfs-${role}.template.yaml" "gpfs-${role}${i}.yaml"
         sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "gpfs-${role}${i}.yaml"
+        sed -i "s/%%%USER%%%/${USER}/g" "gpfs-${role}${i}.yaml"
         sed -i "s/%%%NUMBER%%%/${i}/g" "gpfs-${role}${i}.yaml"
         sed -i "s|%%%IMAGE_REPO%%%|${image_repo}|g" "gpfs-${role}${i}.yaml"
         sed -i "s/%%%IMAGE_TAG%%%/${image_tag}/g" "gpfs-${role}${i}.yaml"
         sed -i "s/%%%FS_NAME%%%/${fs_name}/g" "gpfs-${role}${i}.yaml"
         RANDOM=$$$(date +%s)
         if [[ $hostnames -eq 0 ]]; then
-          workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
+          workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="true" -ojsonpath="{.items[*].metadata.name}"`)
           hostname=${workers[ $RANDOM % ${#workers[@]} ]}
         else
           hostname=${HOST_ARRAY[$j]}
         fi
-        CIDR="$(${PWD}/../calicoctl ipam check | grep host:${hostname}: | awk '{print $3}')"
+        CIDR="$(calicoctl ipam check | grep host:${hostname}: | awk '{print $3}')"
         IP_LIST=($(nmap -sL $CIDR | awk '/Nmap scan report/{print $NF}' | grep -v '^$'))
-        ALLOCATED_IPS=($(${PWD}/../calicoctl ipam check --show-all-ips | grep node=${hostname} | awk '{print $1}'))
+        ALLOCATED_IPS=($(calicoctl ipam check --show-all-ips | grep node=${hostname} | awk '{print $1}'))
         for k in "${ALLOCATED_IPS[@]}"
         do
             for l in "${!IP_LIST[@]}"
@@ -125,11 +129,14 @@ NSD_COUNT=0
 MON_DEPLOY="no"
 QRM_COUNT=1
 TIMEOUT=3600
+JUMPHOST="jumphost"
+SSH_KEY="~/.ssh/id_rsa"
+USER="core"
 VERSION=5.1.8-2
-workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
+workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="true" -ojsonpath="{.items[*].metadata.name}"`)
 WORKER_COUNT="${#workers[@]}"
 
-while getopts 'N:C:H:b:i:q:n:d:f:g:t:v:h' opt; do
+while getopts 'N:C:H:b:i:q:n:d:f:g:k:j:t:u:v:h' opt; do
     case "${opt}" in
         N) # a DNS-1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
             if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
@@ -201,14 +208,30 @@ while getopts 'N:C:H:b:i:q:n:d:f:g:t:v:h' opt; do
             else
                 echo "! Wrong arg -$opt"; exit 1
             fi ;;
+        k) # SSH key path must consist of a unix file path
+            if [[ $OPTARG =~ ^(.+)\/([^\/]+)$ ]];
+                then SSH_KEY=${OPTARG}
+                else echo "! Wrong arg -$opt"; exit 1
+            fi ;;
+        j) # jumphost name must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
+            if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
+                then JUMPHOST=${OPTARG}
+                else echo "! Wrong arg -$opt"; exit 1
+            fi ;;
         t) # timeout must be an integer greater than 0
             if [[ $OPTARG =~ ^[0-9]+$ ]] && [[ $OPTARG -gt 0 ]]; then
                 TIMEOUT=${OPTARG}
             else
                 echo "! Wrong arg -$opt"; exit 1
             fi ;;
+        u) # user name must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
+            if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
+                USER=${OPTARG}
+            else
+                echo "! Wrong arg -$opt"; exit 1
+            fi ;;
         v) # GPFS version must match pre-installed release
-            GPFS_PRE_INSTALLED=$(ssh -l core ${workers[0]} ls /home/core/mmfs | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$')
+            GPFS_PRE_INSTALLED=$(ls | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$')
             if [[ "$OPTARG" == "$GPFS_PRE_INSTALLED" ]]; then
                 VERSION=${OPTARG}
             else
@@ -236,7 +259,10 @@ echo "NSD_LIST=$NSD_LIST"
 echo "MON_DEPLOY=$MON_DEPLOY"
 echo "DEVICE_LIST=$DEVICE_LIST"
 echo "FS_NAME=$FS_NAME"
+echo "SSH_KEY=$SSH_KEY"
+echo "JUMPHOST=$JUMPHOST"
 echo "TIMEOUT=$TIMEOUT"
+echo "USER=$USER"
 echo "VERSION=$VERSION"
 
 
@@ -270,7 +296,7 @@ fi
 
 if [[ "$MON_DEPLOY" == "yes" ]]; then
   PASSWORD=$(openssl rand -base64 20 | tr -dc 'a-zA-Z0-9' | fold -w 16 | head -n 1)
-  MASTER_IP=$(kubectl get nodes -lnode-role.kubernetes.io/master="" -ojsonpath="{.items[*].status.addresses[0].address}")
+  MASTER_IP=$(kubectl get nodes -lnode-role.kubernetes.io/master="true" -ojsonpath="{.items[*].status.addresses[0].address}")
   #cp "$TEMPLATES_DIR/prometheus-server-pvc.yaml" "prometheus-server-pvc.yaml"
   #cp "$TEMPLATES_DIR/grafana-server-pvc.yaml" "grafana-server-pvc.yaml"
   cp "$TEMPLATES_DIR/prometheus.values.yaml" "prometheus.yaml"
@@ -293,6 +319,13 @@ for i in $(seq 1 $HOST_COUNT)
 do
   j=`expr $i - 1`
   echo "   ${HOST_ARRAY[$j]%%.*}-gpfs-mgr-$i-0:manager" | tee -a "cluster-configmap.yaml"
+done
+
+declare -a HOST_IPS
+for i in $(seq 1 $HOST_COUNT)
+do
+  j=`expr $i - 1`
+  HOST_IPS+=("$(kubectl get nodes ${HOST_ARRAY[$j]} -ojsonpath='{.status.addresses[0].address}')")
 done
 
 for i in $(seq 1 $QRM_COUNT)
@@ -398,11 +431,11 @@ g=1
 count=1;
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
     j=`expr $i + 1`
-    scp hosts core@"${HOST_ARRAY[$i]}": > /dev/null 2>&1
-    ssh "${HOST_ARRAY[$i]}" -l core "sudo su - -c \"mkdir -p /root/mgr$j/var_mmfs\""
-    ssh "${HOST_ARRAY[$i]}" -l core "sudo su - -c \"mkdir -p /root/mgr$j/root_ssh\""
-    ssh "${HOST_ARRAY[$i]}" -l core "sudo su - -c \"mkdir -p /root/mgr$j/etc_ssh\""
-    ssh "${HOST_ARRAY[$i]}" -l core "sudo su - -c \"mv /home/core/hosts /root/mgr$j/\""
+    scp -i "${SSH_KEY}" -J "${JUMPHOST}" hosts "${USER}@${HOST_IPS[$i]}": > /dev/null 2>&1
+    ssh -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j/var_mmfs\""
+    ssh -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j/root_ssh\""
+    ssh -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j/etc_ssh\""
+    ssh -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/mgr$j/\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
@@ -468,7 +501,8 @@ do
   for i in $(seq 1 $HOST_COUNT)
   do
     j=`expr $i - 1`
-    ssh "${HOST_ARRAY[$j]}" -l core "echo \""$(kubectl -n $NAMESPACE exec -it $pod -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
+    ssh -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$j]}" -l "${USER}" \
+    "echo \""$(kubectl -n $NAMESPACE exec -it $pod -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
   done
 done
 for pod1 in ${pods[@]}
@@ -641,5 +675,8 @@ echo "HOST_LIST=$HOST_LIST"
 echo "NSD_LIST=$NSD_LIST"
 echo "DEVICE_LIST=$DEVICE_LIST"
 echo "FS_NAME=$FS_NAME"
+echo "SSH_KEY=$SSH_KEY"
+echo "JUMPHOST=$JUMPHOST"
 echo "TIMEOUT=$TIMEOUT"
+echo "USER=$USER"
 echo "VERSION=$VERSION"

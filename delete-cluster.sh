@@ -3,13 +3,16 @@
 #                                  Entrypoint                                  #
 # **************************************************************************** #
 
-if [ "$#" -lt 1 ]; then
-    echo "ERROR: Illegal number of parameters. Syntax: $0 <k8s-namespace>"
+if [ "$#" -lt 4 ]; then
+    echo "ERROR: Illegal number of parameters. Syntax: $0 <k8s-namespace> <user> <ssh-key> <jumphost>"
     exit 1
 fi
 
 namespace=$1
-workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
+user=$2
+ssh_key=$3
+jumphost=$4
+workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="true" -ojsonpath="{.items[*].metadata.name}"`)
 WORKER_COUNT="${#workers[@]}"
 NSD_FILE="./gpfs-instance-$namespace/nsd-configmap.yaml"
 if [ -f "$NSD_FILE" ]; then
@@ -25,11 +28,13 @@ do
   CLI_FILE="./gpfs-instance-$namespace/gpfs-cli${i}.yaml"
   if [ -f "$MGR_FILE" ]; then
     HOST_NAME=$(cat $MGR_FILE | grep nodeName | awk '{print $2}')
-    ssh $HOST_NAME -l core "sudo su - -c \"rm -rf /root/mgr*\""
+    IP_ADDR=$(kubectl get node $HOST_NAME -ojsonpath="{.status.addresses[0].address}")
+    ssh $IP_ADDR -J $jumphost -i $ssh_key -l $user "sudo su - -c \"rm -rf /root/mgr*\""
   fi
   if [ -f "$CLI_FILE" ]; then
     HOST_NAME=$(cat $CLI_FILE | grep nodeName | awk '{print $2}')
-    ssh $HOST_NAME -l core "sudo su - -c \"rm -rf /root/cli*\""
+    IP_ADDR=$(kubectl get node $HOST_NAME -ojsonpath="{.status.addresses[0].address}")
+    ssh $IP_ADDR -J $jumphost -i $ssh_key -l $user "sudo su - -c \"rm -rf /root/cli*\""
   fi
 done
 GRAFANA_FILE="./gpfs-instance-$namespace/grafana.yaml"
