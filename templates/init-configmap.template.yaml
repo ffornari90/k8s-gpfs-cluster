@@ -16,7 +16,7 @@ data:
    baseurl=file:///usr/lpp/mmfs/%%%VERSION%%%/zimon_rpms/rhel8/
    enabled=1
    gpgcheck=0" | tee /etc/yum.repos.d/gpfs.repo
-   microdnf install -y gpfs.base gpfs.docs gpfs.ext gpfs.gpl gpfs.gskit gpfs.msg.en_US \
+   microdnf install -y gpfs.base gpfs.docs gpfs.ext gpfs.gpl gpfs.gskit gpfs.msg.en_US gpfs.afm.cos \
    gpfs.gss.pmsensors-%%%VERSION%%%.el8.x86_64 gpfs.gss.pmcollector-%%%VERSION%%%.el8.x86_64
    echo "Defaults:gpfs_exporter !syslog
    Defaults:gpfs_exporter !requiretty

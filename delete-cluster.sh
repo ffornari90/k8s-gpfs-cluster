@@ -29,12 +29,12 @@ do
   if [ -f "$MGR_FILE" ]; then
     HOST_NAME=$(cat $MGR_FILE | grep nodeName | awk '{print $2}')
     IP_ADDR=$(kubectl get node $HOST_NAME -ojsonpath="{.status.addresses[0].address}")
-    ssh $IP_ADDR -J $jumphost -i $ssh_key -l $user "sudo su - -c \"rm -rf /root/mgr*\""
+    ssh -o "StrictHostKeyChecking=no" $IP_ADDR -J $jumphost -i $ssh_key -l $user "sudo su - -c \"rm -rf /root/mgr*\""
   fi
   if [ -f "$CLI_FILE" ]; then
     HOST_NAME=$(cat $CLI_FILE | grep nodeName | awk '{print $2}')
     IP_ADDR=$(kubectl get node $HOST_NAME -ojsonpath="{.status.addresses[0].address}")
-    ssh $IP_ADDR -J $jumphost -i $ssh_key -l $user "sudo su - -c \"rm -rf /root/cli*\""
+    ssh -o "StrictHostKeyChecking=no" $IP_ADDR -J $jumphost -i $ssh_key -l $user "sudo su - -c \"rm -rf /root/cli*\""
   fi
 done
 GRAFANA_FILE="./gpfs-instance-$namespace/grafana.yaml"

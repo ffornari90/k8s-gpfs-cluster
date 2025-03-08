@@ -71,7 +71,8 @@ function gen_role () {
         fi
         CIDR="$(calicoctl ipam check | grep host:${hostname}: | awk '{print $3}')"
         IP_LIST=($(nmap -sL $CIDR | awk '/Nmap scan report/{print $NF}' | grep -v '^$'))
-        ALLOCATED_IPS=($(calicoctl ipam check --show-all-ips | grep node=${hostname} | awk '{print $1}'))
+        ALLOCATED_IPS=($(comm -23 <(kubectl get po -ojsonpath='{range .items[?(@.status.phase=="Running")]}{.status.podIP}{"\n"}{end}' -A | sort) \
+        <(kubectl get pods -A -o json | jq -r '.items[] | select(.status.phase=="Running") | select(.spec.hostNetwork==true) | .status.podIP' | sort)))
         for k in "${ALLOCATED_IPS[@]}"
         do
             for l in "${!IP_LIST[@]}"
@@ -85,7 +86,7 @@ function gen_role () {
         while true; do
             index=$((1 + $RANDOM % ${#IP_LIST[@]}))
             if [ -n "${IP_LIST[index-1]}" ]; then
-                pod_ip="${IP_LIST[index-1]}"
+                pod_ip="${IP_LIST[index-1]//[\(\)]/}"
                 break
             fi
         done
@@ -431,11 +432,11 @@ g=1
 count=1;
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
     j=`expr $i + 1`
-    scp -i "${SSH_KEY}" -J "${JUMPHOST}" hosts "${USER}@${HOST_IPS[$i]}": > /dev/null 2>&1
-    ssh -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j/var_mmfs\""
-    ssh -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j/root_ssh\""
-    ssh -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j/etc_ssh\""
-    ssh -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/mgr$j/\""
+    scp -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" hosts "${USER}@${HOST_IPS[$i]}": > /dev/null 2>&1
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j/var_mmfs\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j/root_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j/etc_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/mgr$j/\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
@@ -501,7 +502,7 @@ do
   for i in $(seq 1 $HOST_COUNT)
   do
     j=`expr $i - 1`
-    ssh -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$j]}" -l "${USER}" \
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$j]}" -l "${USER}" \
     "echo \""$(kubectl -n $NAMESPACE exec -it $pod -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
   done
 done

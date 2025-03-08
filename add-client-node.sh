@@ -21,11 +21,17 @@ function usage () {
     echo "-N    Specify the kubernetes Namespace on which the cluster resides (default is 'ns\$(date +%s)')"
     echo "      It must be a compliant DNS-1123 label and match =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
     echo "      In practice, must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character"
+    echo "-a    Specify ingress controller IP address (default is 192.168.0.1)"
     echo "-b    Specify docker image repository to be used for node creation (default is $CC_IMAGE_REPO)"
+    echo "-d    Specify domain name to be used for StoRM-WebDAV service (default is example.com)"
     echo "-i    Specify docker image tag to be used for node creation (default is $CC_IMAGE_TAG)"
     echo "-p    Specify an OIDC provider for StoRM-WebDAV authentication (default is iam-t1-computing.cloud.cnaf.infn.it)"
     echo "-c    Specify a CA certificate to be used for OIDC provider (default is none)"
+    echo "-k    Specify SSH key path for cluster creation (default is ~/.ssh/id_rsa)"
+    echo "-j    Specify jump host for cluster creation (default is jumphost)"
+    echo "-m    Specify cluster issuer name to be used for StoRM-WebDAV certificate request (default is clusterissuer)"
     echo "-t    Specify desired timeout for node creation in seconds (default is 3600)"
+    echo "-u    Specify user to perform cluster creation (default is core)"
     echo "-v    Specify desired GPFS version for node creation (default is 5.1.8-2)"
     echo
     echo "-h    Show usage and exit"
@@ -55,12 +61,13 @@ function gen_role () {
     sed -i "s|%%%IMAGE_REPO%%%|${image_repo}|g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%IMAGE_TAG%%%/${image_tag}/g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%FS_NAME%%%/${fs_name}/g" "gpfs-${role}${index}.yaml"
-    workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -o=jsonpath='{range .items[1:]}{.metadata.name}{"\n"}{end}'`)
+    workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="true" -o=jsonpath='{range .items[1:]}{.metadata.name}{"\n"}{end}'`)
     RANDOM=$$$(date +%s)
     selected_worker=${workers[ $RANDOM % ${#workers[@]} ]}
-    CIDR="$(${PWD}/../calicoctl ipam check | grep host:${selected_worker}: | awk '{print $3}')"
+    CIDR="$(calicoctl ipam check | grep host:${selected_worker}: | awk '{print $3}')"
     IP_LIST=($(nmap -sL $CIDR | awk '/Nmap scan report/{print $NF}' | grep -v '^$'))
-    ALLOCATED_IPS=($(${PWD}/../calicoctl ipam check --show-all-ips | grep node=${selected_worker} | awk '{print $1}'))
+    ALLOCATED_IPS=($(comm -23 <(kubectl get po -ojsonpath='{range .items[?(@.status.phase=="Running")]}{.status.podIP}{"\n"}{end}' -A | sort) \
+    <(kubectl get pods -A -o json | jq -r '.items[] | select(.status.phase=="Running") | select(.spec.hostNetwork==true) | .status.podIP' | sort)))
     for k in "${ALLOCATED_IPS[@]}"
     do
       for l in "${!IP_LIST[@]}"
@@ -74,7 +81,7 @@ function gen_role () {
     while true; do
         ip_index=$((1 + $RANDOM % ${#IP_LIST[@]}))
         if [ -n "${IP_LIST[ip_index-1]}" ]; then
-            pod_ip="${IP_LIST[ip_index-1]}"
+            pod_ip="${IP_LIST[ip_index-1]//[\(\)]/}"
             break
         fi
     done
@@ -129,22 +136,38 @@ CC_IMAGE_REPO="ffornari/gpfs-storm-webdav"
 CC_IMAGE_TAG="rhel8"
 HOST_COUNT=0
 TIMEOUT=3600
+JUMPHOST="jumphost"
+SSH_KEY="~/.ssh/id_rsa"
+USER="core"
 VERSION=5.1.8-2
-workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
+workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="true" -ojsonpath="{.items[*].metadata.name}"`)
 WORKER_COUNT="${#workers[@]}"
 with_iam_ca=false
 IAM_CA_FILE=""
 OIDC_PROVIDER="iam-t1-computing.cloud.cnaf.infn.it"
+DOMAIN="example.com"
+CONTROLLER_IP="192.168.0.1"
+CLUSTER_ISSUER="clusterissuer"
 
-while getopts 'N:b:i:p:c:t:v:h' opt; do
+while getopts 'N:a:b:d:i:p:c:k:j:m:t:u:v:h' opt; do
     case "${opt}" in
         N) # a DNS-1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
             if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
                 then NAMESPACE=${OPTARG}
                 else echo "! Wrong arg -$opt"; exit 1
             fi ;;
+        a) # ingress controller ip address must consist of 4 sequences of numeric characters separated by dots
+            if [[ $OPTARG =~ ^[0-9]+.[0-9]+.[0-9]+.[0-9]+$ ]];
+                then CONTROLLER_IP=${OPTARG}
+                else echo "! Wrong arg -$opt"; exit 1
+            fi ;;
         b)
             CC_IMAGE_REPO=${OPTARG} ;;
+        d)
+            if [[ $OPTARG =~ ^[[:alnum:]][[:alnum:].-]*[[:alnum:]]$ ]];
+                then DOMAIN=${OPTARG}
+                else echo "! Wrong arg -$opt"; exit 1
+            fi ;;
         i)
             CC_IMAGE_TAG=${OPTARG} ;;
         p)
@@ -159,14 +182,35 @@ while getopts 'N:b:i:p:c:t:v:h' opt; do
                 echo "! Wrong arg -$opt"; exit 1
             fi
             with_iam_ca=true ;;
+        k) # SSH key path must consist of a unix file path
+            if [[ $OPTARG =~ ^(.+)\/([^\/]+)$ ]];
+                then SSH_KEY=${OPTARG}
+                else echo "! Wrong arg -$opt"; exit 1
+            fi ;;
+        j) # jumphost name must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
+            if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
+                then JUMPHOST=${OPTARG}
+                else echo "! Wrong arg -$opt"; exit 1
+            fi ;;
+        m) # a DNS-1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
+            if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
+                then CLUSTER_ISSUER=${OPTARG}
+                else echo "! Wrong arg -$opt"; exit 1
+            fi ;;
         t) # timeout must be an integer greater than 0
             if [[ $OPTARG =~ ^[0-9]+$ ]] && [[ $OPTARG -gt 0 ]]; then
                 TIMEOUT=${OPTARG}
             else
                 echo "! Wrong arg -$opt"; exit 1
             fi ;;
+        u) # user name must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
+            if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
+                USER=${OPTARG}
+            else
+                echo "! Wrong arg -$opt"; exit 1
+            fi ;;
         v) # GPFS version must match pre-installed release
-            GPFS_PRE_INSTALLED=$(ssh -l core ${workers[0]} ls /home/core/mmfs | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$')
+            GPFS_PRE_INSTALLED=$(ls | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$')
             if [[ "$OPTARG" == "$GPFS_PRE_INSTALLED" ]]; then
                 VERSION=${OPTARG}
             else
@@ -190,6 +234,12 @@ echo "VERSION=$VERSION"
 echo "with_iam_ca=$with_iam_ca"
 echo "IAM_CA_FILE=$IAM_CA_FILE"
 echo "OIDC_PROVIDER=$OIDC_PROVIDER"
+echo "USER=$USER"
+echo "SSH_KEY=$SSH_KEY"
+echo "JUMPHOST=$JUMPHOST"
+echo "DOMAIN=$DOMAIN"
+echo "CONTROLLER_IP=$CONTROLLER_IP"
+echo "CLUSTER_ISSUER=$CLUSTER_ISSUER"
 
 # **********************************************************************************************
 # Generation of the K8s manifests and configuration scripts for a complete namespaced instance #
@@ -204,12 +254,20 @@ fi
 cd $GPFS_INSTANCE_DIR
 FS_NAME=$(k8s-exec gpfs-mgr1 "ls /ibm/")
 
+if [ $with_iam_ca == true ]; then
+  if ! kubectl get secret iam-ca -n $NAMESPACE &> /dev/null; then
+    kubectl create secret generic iam-ca \
+     -n $NAMESPACE \
+     --from-file=../${IAM_CA_FILE}
+  fi
+fi
+
 # Generate the manager manifests
 gen_role cli $FS_NAME $IAM_CA_FILE
 index=$(ls | grep -o 'cli[0-9]\+' | cut -c4- | tail -1)
 printf '\n'
 
-REDIRECT_URI="https://storm-webdav-$NAMESPACE.novalocal/login/oauth2/code/iam-indigo"
+REDIRECT_URI="https://storm-webdav.$DOMAIN/login/oauth2/code/iam-indigo"
 
 # Generate the services
 cp "$TEMPLATES_DIR/hosts.template" "hosts"
@@ -225,6 +283,11 @@ sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-configmap.yaml"
 sed -i "s/%%%FS_NAME%%%/$FS_NAME/g" "storm-webdav-configmap.yaml"
 sed -i "s/%%%OIDC_PROVIDER%%%/$OIDC_PROVIDER/g" "storm-webdav-configmap.yaml"
 sed -i "s#%%%REDIRECT_URI%%%#$REDIRECT_URI#g" "client-req${index}.json"
+sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-ingress.yaml"
+sed -i "s/%%%DOMAIN%%%/$DOMAIN/g" "storm-webdav-ingress.yaml"
+sed -i "s/%%%CONTROLLER_IP%%%/$CONTROLLER_IP/g" "storm-webdav-ingress.yaml"
+sed -i "s/%%%CLUSTER_ISSUER%%%/$CLUSTER_ISSUER/g" "storm-webdav-ingress.yaml"
+sed -i "s/%%%NUMBER%%%/${index}/g" "storm-webdav-ingress.yaml"
 
 curl -H "Content-Type: application/json" -d "@client-req${index}.json" -X POST \
  -sk https://${OIDC_PROVIDER}/iam/api/client-registration > "client${index}.json"
@@ -243,79 +306,71 @@ shopt -s nullglob # The shopt -s nullglob will make the glob expand to nothing i
 roles_yaml=("gpfs-*.yaml")
 
 # Instantiate the services
+kubectl apply -f "storm-webdav-ingress.yaml"
+kubectl apply -f "storm-webdav-configmap.yaml"
 kubectl apply -f "cli-svc${index}.yaml"
 kubectl apply -f "storm-webdav-svc.yaml"
-kubectl apply -f "storm-webdav-configmap.yaml"
 
-POD_IP=$(cat gpfs-cli${index}.yaml | grep ipAddrs | awk -F'[' '{print $2}' | awk -F']' '{print $1}' | sed 's/\"//g')
-sed -i 's/\(IP.1 =\)\(.*\)/\1 '"${POD_IP}"'/g' ${PWD}/../openssl.cnf
-sed -i 's/\(DNS.1 =\)\(.*\)/\1 '"storm-webdav-${NAMESPACE}.novalocal"'/g' ${PWD}/../openssl.cnf
+#POD_IP=$(cat gpfs-cli${index}.yaml | grep ipAddrs | awk -F'[' '{print $2}' | awk -F']' '{print $1}' | sed 's/\"//g')
+#sed -i 's/\(IP.1 =\)\(.*\)/\1 '"${POD_IP}"'/g' ${PWD}/../openssl.cnf
+#sed -i 's/\(DNS.1 =\)\(.*\)/\1 '"storm-webdav-${NAMESPACE}.novalocal"'/g' ${PWD}/../openssl.cnf
 
-if [ ! -d "cacerts" ]; then
-  mkdir -p "cacerts"
-  openssl genrsa -out cacerts/swCA.key 4096
-  openssl req -x509 -new -nodes -key cacerts/swCA.key \
-   -sha256 -days 1024 -out cacerts/swCA.crt \
-   -subj "/CN=StoRM-WebDAV-CA"
-  CONT_ID=$(kubectl get po -lapp.kubernetes.io/instance=gpfs -ojsonpath="{.items[*].metadata.name}")
-  kubectl cp cacerts/swCA.crt $CONT_ID:/tmp/swCA.crt
-  ssh -l core $(kubectl get nodes -lnode-role.kubernetes.io/master="" -ojsonpath="{.items[*].metadata.name}") \
-  "sudo runc --root /run/containerd/runc/k8s.io exec -u 0 \$(sudo ls /run/containerd/runc/k8s.io/ | grep \$(sudo crictl ps | grep nginx-ingress | awk '{print \$1}')) /bin/bash -c 'cp /tmp/swCA.crt /usr/local/share/ca-certificates/ && update-ca-certificates'"
-fi
+#if [ ! -d "cacerts" ]; then
+#  mkdir -p "cacerts"
+#  openssl genrsa -out cacerts/swCA.key 4096
+#  openssl req -x509 -new -nodes -key cacerts/swCA.key \
+#   -sha256 -days 1024 -out cacerts/swCA.crt \
+#   -subj "/CN=StoRM-WebDAV-CA"
+#  CONT_ID=$(kubectl get po -lapp.kubernetes.io/instance=gpfs -ojsonpath="{.items[*].metadata.name}")
+#  kubectl cp cacerts/swCA.crt $CONT_ID:/tmp/swCA.crt
+#  ssh -l core $(kubectl get nodes -lnode-role.kubernetes.io/master="true" -ojsonpath="{.items[*].metadata.name}") \
+#  "sudo runc --root /run/containerd/runc/k8s.io exec -u 0 \$(sudo ls /run/containerd/runc/k8s.io/ | grep \$(sudo crictl ps | grep nginx-ingress | awk '{print \$1}')) /bin/bash -c 'cp /tmp/swCA.crt /usr/local/share/ca-certificates/ && update-ca-certificates'"
+#fi
 
-mkdir -p "certs${index}"
-openssl genrsa -out certs${index}/private.key 4096
-openssl req -new -sha256 -key certs${index}/private.key \
- -subj "/CN=storm-webdav-$NAMESPACE.novalocal" \
- -out certs${index}/public.csr \
- -config ${PWD}/../openssl.cnf
-openssl x509 -req -in certs${index}/public.csr \
- -CA cacerts/swCA.crt -CAkey cacerts/swCA.key -CAcreateserial \
- -out certs${index}/public.crt -days 365 -sha256 \
- -extensions req_ext -extfile ${PWD}/../openssl.cnf
-cp cacerts/swCA.crt certs${index}/ca.crt
+#mkdir -p "certs${index}"
+#openssl genrsa -out certs${index}/private.key 4096
+#openssl req -new -sha256 -key certs${index}/private.key \
+# -subj "/CN=storm-webdav-$NAMESPACE.novalocal" \
+# -out certs${index}/public.csr \
+# -config ${PWD}/../openssl.cnf
+#openssl x509 -req -in certs${index}/public.csr \
+# -CA cacerts/swCA.crt -CAkey cacerts/swCA.key -CAcreateserial \
+# -out certs${index}/public.crt -days 365 -sha256 \
+# -extensions req_ext -extfile ${PWD}/../openssl.cnf
+#cp cacerts/swCA.crt certs${index}/ca.crt
 
-if ! kubectl get secret tls-ssl-storm-webdav-${index} -n $NAMESPACE &> /dev/null; then
-  kubectl create secret generic \
-   tls-ssl-storm-webdav-${index} \
-   -n $NAMESPACE \
-   --from-file=./certs${index}/private.key \
-   --from-file=./certs${index}/public.crt \
-   --from-file=./certs${index}/ca.crt
-fi
+#if ! kubectl get secret tls-ssl-storm-webdav-${index} -n $NAMESPACE &> /dev/null; then
+#  kubectl create secret generic \
+#   tls-ssl-storm-webdav-${index} \
+#   -n $NAMESPACE \
+#   --from-file=./certs${index}/private.key \
+#   --from-file=./certs${index}/public.crt \
+#   --from-file=./certs${index}/ca.crt
+#fi
 
-if [ $with_iam_ca == true ]; then
-  if ! kubectl get secret iam-ca -n $NAMESPACE &> /dev/null; then
-    kubectl create secret generic iam-ca \
-     -n $NAMESPACE \
-     --from-file=../${IAM_CA_FILE}
-  fi
-fi
-
-if [ ! -d "certs" ]; then
-  mkdir -p "certs"
-  cp certs${index}/private.key certs/
-  cp certs${index}/public.crt certs/
-  kubectl create secret tls storm-cert \
-   --cert=./certs/public.crt \
-   --key=./certs/private.key \
-   -n $NAMESPACE
-fi
-sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-ingress.yaml"
-kubectl apply -f "storm-webdav-ingress.yaml"
+#if [ ! -d "certs" ]; then
+#  mkdir -p "certs"
+#  cp certs${index}/private.key certs/
+#  cp certs${index}/public.crt certs/
+#  kubectl create secret tls storm-cert \
+#   --cert=./certs/public.crt \
+#   --key=./certs/private.key \
+#   -n $NAMESPACE
+#fi
 
 # Conditionally split the pod creation in groups, since apparently the external provisioner (manila?) can't deal with too many volume-creation request per second
 g=1
 count=1
 CLI_FILE="./gpfs-cli${index}.yaml"
 HOST_NAME=$(cat $CLI_FILE | grep nodeName | awk '{print $2}')
+HOST_IP=$(kubectl get nodes ${HOST_NAME} -ojsonpath='{.status.addresses[0].address}')
 POD_NAME="$(cat $CLI_FILE | grep -m1 name | awk '{print $2}')-0"
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
-    scp hosts core@"${HOST_NAME}": > /dev/null 2>&1
-    ssh "${HOST_NAME}" -l core "sudo su - -c \"mkdir -p /root/cli${index}/var_mmfs\""
-    ssh "${HOST_NAME}" -l core "sudo su - -c \"mkdir -p /root/cli${index}/root_ssh\""
-    ssh "${HOST_NAME}" -l core "sudo su - -c \"mkdir -p /root/cli${index}/etc_ssh\""
-    ssh "${HOST_NAME}" -l core "sudo su - -c \"mv /home/core/hosts /root/cli${index}/\""
+    scp -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" hosts "${USER}"@"${HOST_IP}": > /dev/null 2>&1
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}/var_mmfs\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}/root_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}/etc_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/cli${index}/\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
@@ -381,28 +436,44 @@ mgr_pods=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-mgr -ojsonpath="{.items[*].
 cli_hosts=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-cli -ojsonpath="{.items[*].spec.nodeName}"`)
 cli_pods=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-cli -ojsonpath="{.items[*].metadata.name}"`)
 
+declare -a mgr_ips
+for node in ${mgr_hosts[@]}
+do
+  mgr_ips+=("$(kubectl get node $node -ojsonpath='{.status.addresses[0].address}')")
+done
+
+declare -a cli_ips
+for node in ${cli_hosts[@]}
+do
+  cli_ips+=("$(kubectl get node $node -ojsonpath='{.status.addresses[0].address}')")
+done
+
 for i in $(seq 1 ${#mgr_pods[@]})
 do
   j=`expr $i - 1`
-  ssh "${HOST_NAME}" -l core "echo \""$(kubectl -n $NAMESPACE exec -it ${mgr_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
+  ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" \
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${mgr_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
 done
 
 for i in $(seq 1 ${#cli_pods[@]})
 do
   j=`expr $i - 1`
-  ssh "${HOST_NAME}" -l core "echo \""$(kubectl -n $NAMESPACE exec -it ${cli_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
+  ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" \
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${cli_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
 done
 
-for i in $(seq 1 ${#mgr_hosts[@]})
+for i in $(seq 1 ${#mgr_ips[@]})
 do
   j=`expr $i - 1`
-  ssh "${mgr_hosts[$j]}" -l core "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
+  ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${mgr_ips[$j]}" -l "${USER}" \
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
 done
 
-for i in $(seq 1 ${#cli_hosts[@]})
+for i in $(seq 1 ${#cli_ips[@]})
 do
   j=`expr $i - 1`
-  ssh "${cli_hosts[$j]}" -l core "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$i/root_ssh/authorized_keys"
+  ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${cli_ips[$j]}" -l "${USER}" \
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$i/root_ssh/authorized_keys"
 done
 
 for pod in ${cli_pods[@]}
@@ -495,9 +566,9 @@ else
 fi
 
 echo -e "${Yellow} Starting StoRM-WebDAV service on client node... ${Color_Off}"
-k8s-exec gpfs-cli$index "su - storm -c \"cp /tmp/.storm-webdav/certs/private.key /etc/grid-security/storm-webdav/hostkey.pem\""
+k8s-exec gpfs-cli$index "su - storm -c \"cp /tmp/.storm-webdav/certs/tls.key /etc/grid-security/storm-webdav/hostkey.pem\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi
-k8s-exec gpfs-cli$index "su - storm -c \"cp /tmp/.storm-webdav/certs/public.crt /etc/grid-security/storm-webdav/hostcert.pem\""
+k8s-exec gpfs-cli$index "su - storm -c \"cp /tmp/.storm-webdav/certs/tls.crt /etc/grid-security/storm-webdav/hostcert.pem\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 k8s-exec-bkg gpfs-cli$index "su - storm -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
 -Dspring.profiles.active=\$STORM_WEBDAV_PROFILE -Dlogging.config=\$STORM_WEBDAV_LOG_CONFIGURATION -jar \$STORM_WEBDAV_JAR \
@@ -517,3 +588,9 @@ echo "VERSION=$VERSION"
 echo "with_iam_ca=$with_iam_ca"
 echo "IAM_CA_FILE=$IAM_CA_FILE"
 echo "OIDC_PROVIDER=$OIDC_PROVIDER"
+echo "USER=$USER"
+echo "SSH_KEY=$SSH_KEY"
+echo "JUMPHOST=$JUMPHOST"
+echo "DOMAIN=$DOMAIN"
+echo "CONTROLLER_IP=$CONTROLLER_IP"
+echo "CLUSTER_ISSUER=$CLUSTER_ISSUER"

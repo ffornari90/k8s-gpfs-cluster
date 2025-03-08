@@ -57,27 +57,47 @@ spec:
         secret:
           secretName: tls-ssl-storm-webdav-%%%NUMBER%%%
           items:
-          - key: public.crt
-            path: public.crt
-          - key: private.key
-            path: private.key
-          - key: ca.crt
-            path: CAs/ca.crt
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
       - name: trust
         emptyDir: {}
       initContainers:
       - name: storm-webdav-ca-bundle
-        image: "alpine"
+        image: "alpine/curl:latest"
         command: [sh, -c]
         args:
-          - cd /tmp &&
-            wget 'http://repository.egi.eu/sw/production/cas/1/current/tgz/' &&
-            mkdir tgz && mkdir certificates &&
-            for tgz in $(cat index.html | awk -F'"' '{print $2}' | grep tar.gz);
-            do wget http://repository.egi.eu/sw/production/cas/1/current/tgz/$tgz -O tgz/$tgz;
-            done && for tgz in $(ls tgz/);
-            do tar xzf tgz/$tgz --strip-components=1 -C certs/; done &&
-            if [ -d .iam ]; then cp .iam/certs/* certs/; fi
+          - rm -rf "${IGTF_CA_CERT_PATH}" &&
+            mkdir -p "${IGTF_CA_CERT_PATH}" &&
+            curl -s "${IGTF_CA_CERT_BASE_URL}" | sed -n 's/^.*href="\(.*\.tar\.gz\)">.*$/\1/p' | while read -r file;
+            do curl "${IGTF_CA_CERT_BASE_URL}${file}" | tar xz --strip-components=1 -C "${IGTF_CA_CERT_PATH}"; done &&
+            for f in $(find "${IGTF_CA_CERT_PATH}" -type f -name '*.pem'); do cat $f >> /tmp/certs/ca-bundle.crt; done &&
+            wget "https://pki.cesnet.cz/_media/certs/chain_geant_ov_rsa_ca_4_full.pem" -O "$IGTF_CA_CERT_PATH/geant-ov-rsa.crt" &&
+            wget "https://letsencrypt.org/certs/2024/e5.pem" -O "$IGTF_CA_CERT_PATH/letsencrypt-stg-int-e5.crt" &&
+            wget "https://letsencrypt.org/certs/2024/e6.pem" -O "$IGTF_CA_CERT_PATH/letsencrypt-stg-int-e6.crt" &&
+            wget "https://letsencrypt.org/certs/2024/r10.pem" -O "$IGTF_CA_CERT_PATH/letsencrypt-stg-int-r10.crt" &&
+            wget "https://letsencrypt.org/certs/2024/r11.pem" -O "$IGTF_CA_CERT_PATH/letsencrypt-stg-int-r11.crt" &&
+            wget "https://letsencrypt.org/certs/staging/letsencrypt-stg-int-r3.pem" -O "$IGTF_CA_CERT_PATH/letsencrypt-stg-int-r3.crt" &&
+            wget "https://letsencrypt.org/certs/staging/letsencrypt-stg-int-e1.pem" -O "$IGTF_CA_CERT_PATH/letsencrypt-stg-int-e1.crt" &&
+            wget "https://letsencrypt.org/certs/staging/letsencrypt-stg-root-x1.pem" -O "$IGTF_CA_CERT_PATH/letsencrypt-stg-root-x1.crt" &&
+            wget "https://letsencrypt.org/certs/staging/letsencrypt-stg-root-x2.pem" -O "$IGTF_CA_CERT_PATH/letsencrypt-stg-root-x2.crt" &&
+            cat "$IGTF_CA_CERT_PATH/geant-ov-rsa.crt" >> /tmp/certs/ca-bundle.crt &&
+            cat "$IGTF_CA_CERT_PATH/letsencrypt-stg-int-e5.crt" >> /tmp/certs/ca-bundle.crt &&
+            cat "$IGTF_CA_CERT_PATH/letsencrypt-stg-int-e6.crt" >> /tmp/certs/ca-bundle.crt &&
+            cat "$IGTF_CA_CERT_PATH/letsencrypt-stg-int-r3.crt" >> /tmp/certs/ca-bundle.crt &&
+            cat "$IGTF_CA_CERT_PATH/letsencrypt-stg-int-e1.crt" >> /tmp/certs/ca-bundle.crt &&
+            cat "$IGTF_CA_CERT_PATH/letsencrypt-stg-int-r10.crt" >> /tmp/certs/ca-bundle.crt &&
+            cat "$IGTF_CA_CERT_PATH/letsencrypt-stg-int-r11.crt" >> /tmp/certs/ca-bundle.crt &&
+            cat "$IGTF_CA_CERT_PATH/letsencrypt-stg-root-x1.crt" >> /tmp/certs/ca-bundle.crt &&
+            cat "$IGTF_CA_CERT_PATH/letsencrypt-stg-root-x2.crt" >> /tmp/certs/ca-bundle.crt &&
+            cp /tmp/certs/ca-bundle.crt /tmp/certs/ca-bundle.trust.crt &&
+            if [ -d /tmp/.iam ]; then cp /tmp/.iam/certs/* /tmp/certs/; fi
+        env:
+        - name: IGTF_CA_CERT_PATH
+          value: "/tmp/certificates"
+        - name: IGTF_CA_CERT_BASE_URL
+          value: "https://repository.egi.eu/sw/production/cas/1/current/tgz/"
         volumeMounts:
         - name: trust
           mountPath: /tmp/certs
@@ -96,11 +116,11 @@ spec:
           periodSeconds: 10
         command: [sh, -c]
         args:
-        - update-ca-trust &&
-          rpm --import https://dist.eugridpma.info/distribution/igtf/current/GPG-KEY-EUGridPMA-RPM-3 &&
-          curl https://raw.githubusercontent.com/indigo-iam/egi-trust-anchors-container/main/EGI-trustanchors.repo -o /etc/yum.repos.d/ca.repo &&
-          microdnf install -y ca-policy-egi-core &&
-          /scripts/init-container.sh
+        - /scripts/init-container.sh
+          #update-ca-trust &&
+          #rpm --import https://dist.eugridpma.info/distribution/igtf/current/GPG-KEY-EUGridPMA-RPM-3 &&
+          #curl https://raw.githubusercontent.com/indigo-iam/egi-trust-anchors-container/main/EGI-trustanchors.repo -o /etc/yum.repos.d/ca.repo &&
+          #microdnf install -y ca-policy-egi-core &&
         env:        
         - name: FS_NAME
           value: "%%%FS_NAME%%%"
@@ -165,7 +185,7 @@ spec:
         volumeMounts:
         - name: certs-volume
           mountPath: /tmp/.storm-webdav/certs
-        - mountPath: /etc/pki/ca-trust/source/anchors
+        - mountPath: /etc/ssl/certs
           name: trust
           readOnly: true
         - name: application-indigo

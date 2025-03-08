@@ -3,13 +3,16 @@
 #                                  Entrypoint                                  #
 # **************************************************************************** #
 
-if [ "$#" -lt 1 ]; then
-    echo "ERROR: Illegal number of parameters. Syntax: $0 <k8s-namespace>"
+if [ "$#" -lt 4 ]; then
+    echo "ERROR: Illegal number of parameters. Syntax: $0 <k8s-namespace> <user> <ssh-key> <jumphost>"
     exit 1
 fi
 
 namespace=$1
-workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="" -ojsonpath="{.items[*].metadata.name}"`)
+user=$2
+ssh_key=$3
+jumphost=$4
+workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="true" -ojsonpath="{.items[*].metadata.name}"`)
 WORKER_COUNT="${#workers[@]}"
 cli_hosts=(`kubectl -n $namespace get pod -lrole=gpfs-cli -ojsonpath="{.items[*].spec.nodeName}"`)
 clis=(`kubectl -n $namespace get pods -lrole=gpfs-cli -ojsonpath="{.items[*].metadata.name}"`)
@@ -39,7 +42,8 @@ do
   kubectl -n $namespace exec $mgr -- bash -c "sed -i \"/"$CLI_POD_NAME"/d\" /root/.ssh/known_hosts"
   kubectl -n $namespace exec $mgr -- bash -c "sed -i \"/"$CLI_POD_NAME"/d\" /root/.ssh/authorized_keys"
 done
-ssh $HOST_NAME -l core "sudo su - -c \"rm -rf /root/cli${OFFSET}\""
+IP_ADDR=$(kubectl get node $HOST_NAME -ojsonpath="{.status.addresses[0].address}")
+ssh -o "StrictHostKeyChecking=no" $IP_ADDR -J $jumphost -i $ssh_key -l $user "sudo su - -c \"rm -rf /root/cli${OFFSET}\""
 rm -rf "./gpfs-instance-$namespace/cli-svc${OFFSET}.yaml"
 rm -rf "./gpfs-instance-$namespace/gpfs-cli${OFFSET}.yaml"
 rm -rf "./gpfs-instance-$namespace/client-req${OFFSET}.json"

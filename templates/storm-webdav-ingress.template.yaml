@@ -4,15 +4,18 @@ metadata:
   name: storm-webdav-ingress
   namespace: %%%NAMESPACE%%%
   annotations:
-    nginx.org/ssl-redirect: "true"
-    nginx.org/ssl-services: "storm-webdav"
+    external-dns.alpha.kubernetes.io/hostname: storm-webdav.%%%DOMAIN%%%
+    external-dns.alpha.kubernetes.io/target: %%%CONTROLLER_IP%%%
+    cert-manager.io/cluster-issuer: %%%CLUSTER_ISSUER%%%
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
 spec:
   tls:
     - hosts:
-      - storm-webdav-%%%NAMESPACE%%%.novalocal # Domain name of the service
-      secretName: storm-cert # provide the aforementioned secret.
+      - storm-webdav.%%%DOMAIN%%%
+      secretName: tls-ssl-storm-webdav-%%%NUMBER%%%
   rules:
-  - host: storm-webdav-%%%NAMESPACE%%%.novalocal
+  - host: storm-webdav.%%%DOMAIN%%%
     http:
       paths:
       - path: "/"

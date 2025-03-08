@@ -16,5 +16,3 @@ for cert in $(kubectl -n$namespace get secret | grep tls-ssl-storm-webdav | awk 
 do
     kubectl -n$namespace delete secret $cert
 done
-kubectl -n$namespace delete secret storm-cert
-rm -rf gpfs-instance-$namespace/certs*
