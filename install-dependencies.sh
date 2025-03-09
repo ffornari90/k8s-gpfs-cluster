@@ -19,6 +19,19 @@ if ! test -d "${GPFS_VERSION}"; then
   exit 1
 fi
 
+if command -v git &>/dev/null; then
+    echo "git is already installed."
+else
+    if [[ -f /etc/redhat-release ]]; then
+        yum install -y git || dnf install -y git
+    elif [[ -f /etc/debian_version ]]; then
+        apt update && apt install -y git
+    else
+        echo "Unsupported Linux distribution. Please install git manually."
+        exit 1
+    fi
+fi
+
 if command -v jq &>/dev/null; then
     echo "jq is already installed."
 else
