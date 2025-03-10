@@ -71,13 +71,13 @@ spec:
           path: /home/%%%USER%%%
       - name: hostsfile
         hostPath:
-          path: /root/mgr%%%NUMBER%%%/hosts
+          path: /root/mgr%%%NUMBER%%%-%%%NAMESPACE%%%/hosts
       - name: gendir
         hostPath:
-          path: /root/mgr%%%NUMBER%%%/var_mmfs
+          path: /root/mgr%%%NUMBER%%%-%%%NAMESPACE%%%/var_mmfs
       - name: etcsshdir
         hostPath:
-          path: /root/mgr%%%NUMBER%%%/etc_ssh
+          path: /root/mgr%%%NUMBER%%%-%%%NAMESPACE%%%/etc_ssh
       - name: rootsshdir
         hostPath:
-          path: /root/mgr%%%NUMBER%%%/root_ssh
+          path: /root/mgr%%%NUMBER%%%-%%%NAMESPACE%%%/root_ssh

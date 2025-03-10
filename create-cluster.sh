@@ -433,10 +433,10 @@ count=1;
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
     j=`expr $i + 1`
     scp -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" hosts "${USER}@${HOST_IPS[$i]}": > /dev/null 2>&1
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j/var_mmfs\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j/root_ssh\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j/etc_ssh\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/mgr$j/\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j-$NAMESPACE/var_mmfs\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j-$NAMESPACE/root_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j-$NAMESPACE/etc_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/mgr$j-$NAMESPACE/\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
@@ -503,7 +503,7 @@ do
   do
     j=`expr $i - 1`
     ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$j]}" -l "${USER}" \
-    "echo \""$(kubectl -n $NAMESPACE exec -it $pod -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
+    "echo \""$(kubectl -n $NAMESPACE exec -it $pod -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i-$NAMESPACE/root_ssh/authorized_keys"
   done
 done
 for pod1 in ${pods[@]}
@@ -603,7 +603,7 @@ fi
 
 if ! [ -z "$FS_NAME" ]; then
     echo -e "${Yellow} Create GPFS file system on previously created NSDs... ${Color_Off}"
-    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmcrfs ${FS_NAME} -F /tmp/StanzaFile -A no -B 4M -m 2 -M 2 -n 100 -Q yes -j scatter -k nfs4 -r 2 -R 2 -T /ibm/${FS_NAME}"
+    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmcrfs ${FS_NAME} -F /tmp/StanzaFile -A no -B 4M -m ${NSD_COUNT} -M ${NSD_COUNT} -n 100 -Q yes -j scatter -k nfs4 -r ${NSD_COUNT} -R ${NSD_COUNT} -T /ibm/${FS_NAME}"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
 
     echo -e "${Yellow} Mount GPFS file system on every manager... ${Color_Off}"
