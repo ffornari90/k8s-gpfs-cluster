@@ -57,6 +57,7 @@ function gen_role () {
     fi
     cp "$TEMPLATES_DIR/gpfs-${role}.template.yaml" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "gpfs-${role}${index}.yaml"
+    sed -i "s/%%%USER%%%/${USER}/g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%NUMBER%%%/${index}/g" "gpfs-${role}${index}.yaml"
     sed -i "s|%%%IMAGE_REPO%%%|${image_repo}|g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%IMAGE_TAG%%%/${image_tag}/g" "gpfs-${role}${index}.yaml"
@@ -65,7 +66,7 @@ function gen_role () {
     RANDOM=$$$(date +%s)
     selected_worker=${workers[ $RANDOM % ${#workers[@]} ]}
     CIDR="$(calicoctl ipam check | grep host:${selected_worker}: | awk '{print $3}')"
-    IP_LIST=($(nmap -sL $CIDR | awk '/Nmap scan report/{print $NF}' | grep -v '^$'))
+    IP_LIST=($(nmap -sL $CIDR | awk '/Nmap scan report/{print $NF}' | grep -v '^$' | sed -e 's/(//g' -e 's/)//g'))
     ALLOCATED_IPS=($(comm -23 <(kubectl get po -ojsonpath='{range .items[?(@.status.phase=="Running")]}{.status.podIP}{"\n"}{end}' -A | sort) \
     <(kubectl get pods -A -o json | jq -r '.items[] | select(.status.phase=="Running") | select(.spec.hostNetwork==true) | .status.podIP' | sort)))
     for k in "${ALLOCATED_IPS[@]}"
@@ -252,7 +253,7 @@ if [ ! -d $GPFS_INSTANCE_DIR ]; then
   exit 1
 fi
 cd $GPFS_INSTANCE_DIR
-FS_NAME=$(k8s-exec gpfs-mgr1 "ls /ibm/")
+FS_NAME=$(k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmlsfs all_local -T | grep attributes | awk -F\"/\" \"{print \\\$3}\" | sed \"s/://g\"")
 
 if [ $with_iam_ca == true ]; then
   if ! kubectl get secret iam-ca -n $NAMESPACE &> /dev/null; then
@@ -327,7 +328,10 @@ kubectl apply -f "storm-webdav-svc.yaml"
 #  "sudo runc --root /run/containerd/runc/k8s.io exec -u 0 \$(sudo ls /run/containerd/runc/k8s.io/ | grep \$(sudo crictl ps | grep nginx-ingress | awk '{print \$1}')) /bin/bash -c 'cp /tmp/swCA.crt /usr/local/share/ca-certificates/ && update-ca-certificates'"
 #fi
 
-#mkdir -p "certs${index}"
+mkdir -p "certs${index}"
+CAROOT=/etc/grid-security/certificates/ \
+mkcert -install -cert-file ./certs${index}/tls.crt \
+-key-file ./certs${index}/tls.key storm-webdav.$DOMAIN
 #openssl genrsa -out certs${index}/private.key 4096
 #openssl req -new -sha256 -key certs${index}/private.key \
 # -subj "/CN=storm-webdav-$NAMESPACE.novalocal" \
@@ -339,14 +343,13 @@ kubectl apply -f "storm-webdav-svc.yaml"
 # -extensions req_ext -extfile ${PWD}/../openssl.cnf
 #cp cacerts/swCA.crt certs${index}/ca.crt
 
-#if ! kubectl get secret tls-ssl-storm-webdav-${index} -n $NAMESPACE &> /dev/null; then
-#  kubectl create secret generic \
-#   tls-ssl-storm-webdav-${index} \
-#   -n $NAMESPACE \
-#   --from-file=./certs${index}/private.key \
-#   --from-file=./certs${index}/public.crt \
-#   --from-file=./certs${index}/ca.crt
-#fi
+if ! kubectl get secret tls-ssl-storm-webdav-${index} -n $NAMESPACE &> /dev/null; then
+  kubectl create secret generic \
+   tls-ssl-storm-webdav-${index} \
+   -n $NAMESPACE \
+   --from-file=./certs${index}/tls.key \
+   --from-file=./certs${index}/tls.crt
+fi
 
 #if [ ! -d "certs" ]; then
 #  mkdir -p "certs"
@@ -367,10 +370,10 @@ HOST_IP=$(kubectl get nodes ${HOST_NAME} -ojsonpath='{.status.addresses[0].addre
 POD_NAME="$(cat $CLI_FILE | grep -m1 name | awk '{print $2}')-0"
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
     scp -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" hosts "${USER}"@"${HOST_IP}": > /dev/null 2>&1
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}/var_mmfs\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}/root_ssh\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}/etc_ssh\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/cli${index}/\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}-$NAMESPACE/var_mmfs\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}-$NAMESPACE/root_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}-$NAMESPACE/etc_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/cli${index}-$NAMESPACE/\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
@@ -452,28 +455,28 @@ for i in $(seq 1 ${#mgr_pods[@]})
 do
   j=`expr $i - 1`
   ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" \
-  "echo \""$(kubectl -n $NAMESPACE exec -it ${mgr_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${mgr_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index-$NAMESPACE/root_ssh/authorized_keys"
 done
 
 for i in $(seq 1 ${#cli_pods[@]})
 do
   j=`expr $i - 1`
   ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" \
-  "echo \""$(kubectl -n $NAMESPACE exec -it ${cli_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index/root_ssh/authorized_keys"
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${cli_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index-$NAMESPACE/root_ssh/authorized_keys"
 done
 
 for i in $(seq 1 ${#mgr_ips[@]})
 do
   j=`expr $i - 1`
   ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${mgr_ips[$j]}" -l "${USER}" \
-  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i/root_ssh/authorized_keys"
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i-$NAMESPACE/root_ssh/authorized_keys"
 done
 
 for i in $(seq 1 ${#cli_ips[@]})
 do
   j=`expr $i - 1`
   ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${cli_ips[$j]}" -l "${USER}" \
-  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$i/root_ssh/authorized_keys"
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$i-$NAMESPACE/root_ssh/authorized_keys"
 done
 
 for pod in ${cli_pods[@]}

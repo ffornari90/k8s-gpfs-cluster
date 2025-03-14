@@ -1,5 +1,7 @@
 {
-  "redirect_uris": [],
+  "redirect_uris": [
+    "http://localhost:8080"
+  ],
   "client_name": "storm-webdav-client",
   "contacts": [
     "federico.fornari@ecmwf.int"

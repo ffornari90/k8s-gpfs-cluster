@@ -71,6 +71,17 @@ else
     fi
 fi
 
+if command -v mkcert &>/dev/null; then
+    echo "mkcert is already installed."
+else
+    curl https://github.com/FiloSottile/mkcert/releases/download/v1.4.3/mkcert-v1.4.3-linux-amd64 -L -o mkcert
+    chmod +x ./mkcert
+    install -o root -g root -m 0755 mkcert /usr/local/bin/mkcert
+fi
+
+rpm --import https://dist.eugridpma.info/distribution/igtf/current/GPG-KEY-EUGridPMA-RPM-3
+curl https://raw.githubusercontent.com/indigo-iam/egi-trust-anchors-container/main/EGI-trustanchors.repo -o /etc/yum.repos.d/ca.repo
+dnf install -y ca-policy-egi-core
 curl -L https://github.com/projectcalico/calico/releases/download/v${CALICOCTL_VERSION}/calicoctl-linux-amd64 -o calicoctl
 chmod +x ./calicoctl
 install -o root -g root -m 0755 calicoctl /usr/local/bin/calicoctl

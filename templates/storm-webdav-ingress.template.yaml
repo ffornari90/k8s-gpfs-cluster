@@ -4,9 +4,9 @@ metadata:
   name: storm-webdav-ingress
   namespace: %%%NAMESPACE%%%
   annotations:
-    external-dns.alpha.kubernetes.io/hostname: storm-webdav.%%%DOMAIN%%%
-    external-dns.alpha.kubernetes.io/target: %%%CONTROLLER_IP%%%
-    cert-manager.io/cluster-issuer: %%%CLUSTER_ISSUER%%%
+    #external-dns.alpha.kubernetes.io/hostname: storm-webdav.%%%DOMAIN%%%
+    #external-dns.alpha.kubernetes.io/target: %%%CONTROLLER_IP%%%
+    #cert-manager.io/cluster-issuer: %%%CLUSTER_ISSUER%%%
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
 spec:

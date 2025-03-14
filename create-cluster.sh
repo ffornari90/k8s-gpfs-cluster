@@ -70,7 +70,7 @@ function gen_role () {
           hostname=${HOST_ARRAY[$j]}
         fi
         CIDR="$(calicoctl ipam check | grep host:${hostname}: | awk '{print $3}')"
-        IP_LIST=($(nmap -sL $CIDR | awk '/Nmap scan report/{print $NF}' | grep -v '^$'))
+        IP_LIST=($(nmap -sL $CIDR | awk '/Nmap scan report/{print $NF}' | grep -v '^$' | sed -e 's/(//g' -e 's/)//g'))
         ALLOCATED_IPS=($(comm -23 <(kubectl get po -ojsonpath='{range .items[?(@.status.phase=="Running")]}{.status.podIP}{"\n"}{end}' -A | sort) \
         <(kubectl get pods -A -o json | jq -r '.items[] | select(.status.phase=="Running") | select(.spec.hostNetwork==true) | .status.podIP' | sort)))
         for k in "${ALLOCATED_IPS[@]}"

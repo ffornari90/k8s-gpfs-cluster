@@ -7,3 +7,4 @@ openssl.cnf
 kubectl
 get_helm.sh
 *-config
+mkcert
