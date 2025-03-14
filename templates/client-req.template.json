@@ -1,6 +1,6 @@
 {
   "redirect_uris": [
-    "http://localhost:8080"
+    "%%%REDIRECT_URI%%%"
   ],
   "client_name": "storm-webdav-client",
   "contacts": [
