@@ -312,36 +312,10 @@ kubectl apply -f "storm-webdav-configmap.yaml"
 kubectl apply -f "cli-svc${index}.yaml"
 kubectl apply -f "storm-webdav-svc.yaml"
 
-#POD_IP=$(cat gpfs-cli${index}.yaml | grep ipAddrs | awk -F'[' '{print $2}' | awk -F']' '{print $1}' | sed 's/\"//g')
-#sed -i 's/\(IP.1 =\)\(.*\)/\1 '"${POD_IP}"'/g' ${PWD}/../openssl.cnf
-#sed -i 's/\(DNS.1 =\)\(.*\)/\1 '"storm-webdav-${NAMESPACE}.novalocal"'/g' ${PWD}/../openssl.cnf
-
-#if [ ! -d "cacerts" ]; then
-#  mkdir -p "cacerts"
-#  openssl genrsa -out cacerts/swCA.key 4096
-#  openssl req -x509 -new -nodes -key cacerts/swCA.key \
-#   -sha256 -days 1024 -out cacerts/swCA.crt \
-#   -subj "/CN=StoRM-WebDAV-CA"
-#  CONT_ID=$(kubectl get po -lapp.kubernetes.io/instance=gpfs -ojsonpath="{.items[*].metadata.name}")
-#  kubectl cp cacerts/swCA.crt $CONT_ID:/tmp/swCA.crt
-#  ssh -l core $(kubectl get nodes -lnode-role.kubernetes.io/master="true" -ojsonpath="{.items[*].metadata.name}") \
-#  "sudo runc --root /run/containerd/runc/k8s.io exec -u 0 \$(sudo ls /run/containerd/runc/k8s.io/ | grep \$(sudo crictl ps | grep nginx-ingress | awk '{print \$1}')) /bin/bash -c 'cp /tmp/swCA.crt /usr/local/share/ca-certificates/ && update-ca-certificates'"
-#fi
-
 mkdir -p "certs${index}"
 CAROOT=/etc/grid-security/certificates/ \
 mkcert -install -cert-file ./certs${index}/tls.crt \
 -key-file ./certs${index}/tls.key storm-webdav.$DOMAIN
-#openssl genrsa -out certs${index}/private.key 4096
-#openssl req -new -sha256 -key certs${index}/private.key \
-# -subj "/CN=storm-webdav-$NAMESPACE.novalocal" \
-# -out certs${index}/public.csr \
-# -config ${PWD}/../openssl.cnf
-#openssl x509 -req -in certs${index}/public.csr \
-# -CA cacerts/swCA.crt -CAkey cacerts/swCA.key -CAcreateserial \
-# -out certs${index}/public.crt -days 365 -sha256 \
-# -extensions req_ext -extfile ${PWD}/../openssl.cnf
-#cp cacerts/swCA.crt certs${index}/ca.crt
 
 if ! kubectl get secret tls-ssl-storm-webdav-${index} -n $NAMESPACE &> /dev/null; then
   kubectl create secret generic \
@@ -350,16 +324,6 @@ if ! kubectl get secret tls-ssl-storm-webdav-${index} -n $NAMESPACE &> /dev/null
    --from-file=./certs${index}/tls.key \
    --from-file=./certs${index}/tls.crt
 fi
-
-#if [ ! -d "certs" ]; then
-#  mkdir -p "certs"
-#  cp certs${index}/private.key certs/
-#  cp certs${index}/public.crt certs/
-#  kubectl create secret tls storm-cert \
-#   --cert=./certs/public.crt \
-#   --key=./certs/private.key \
-#   -n $NAMESPACE
-#fi
 
 # Conditionally split the pod creation in groups, since apparently the external provisioner (manila?) can't deal with too many volume-creation request per second
 g=1
