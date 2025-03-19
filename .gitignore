@@ -9,3 +9,4 @@ get_helm.sh
 *-config
 mkcert
 .DS_Store
+*.pub
