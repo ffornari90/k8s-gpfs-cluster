@@ -17,7 +17,7 @@ workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="true" -ojsonpath="
 WORKER_COUNT="${#workers[@]}"
 NSD_FILE="./gpfs-instance-$cluster/nsd-configmap.yaml"
 if [ -f "$NSD_FILE" ]; then
-  POD_NAME=$(kubectl -n $namespace get po -lapp=gpfs-mgr1-$cluster -ojsonpath="{.items[*].metadata.name}")
+  POD_NAME=$(kubectl -n $namespace get po -lapp=$cluster-mgr1 -ojsonpath="{.items[*].metadata.name}")
   FS_NAME=$(kubectl -n $namespace exec $POD_NAME -- /usr/lpp/mmfs/bin/mmlsmount all_local | awk '{print $3}')
   kubectl -n $namespace exec $POD_NAME -- /usr/lpp/mmfs/bin/mmumount all -a
   kubectl -n $namespace exec $POD_NAME -- /usr/lpp/mmfs/bin/mmdelfs $FS_NAME -p

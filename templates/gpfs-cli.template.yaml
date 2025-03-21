@@ -7,20 +7,23 @@ metadata:
   name: %%%PODNAME%%%
   namespace: %%%NAMESPACE%%%
   labels:
-    app: gpfs-cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%
+    app: cli%%%NUMBER%%%
+    cluster: %%%CLUSTER_NAME%%%
     role: gpfs-cli
 spec:
   selector:
     matchLabels:
-      app: gpfs-cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%
+      app: cli%%%NUMBER%%%
+      cluster: %%%CLUSTER_NAME%%%
       role: gpfs-cli
   serviceName: &name gpfs-cli%%%NUMBER%%%
   replicas: 1
   template:
     metadata:
-      name: &name gpfs-cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%
+      name: &name cli%%%NUMBER%%%
       labels:
         app: *name
+        cluster: %%%CLUSTER_NAME%%%
         role: gpfs-cli
       annotations:
         "cni.projectcalico.org/ipAddrs": "[\"%%%POD_IP%%%\"]"

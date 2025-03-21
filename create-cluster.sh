@@ -101,9 +101,10 @@ function k8s-exec() {
 
     local namespace=$NAMESPACE
     local app=$1
-    [[ $2 ]] && local k8cmd=${@:2}
+    local cluster=$2
+    [[ $3 ]] && local k8cmd=${@:3}
 
-    kubectl exec --namespace=$namespace $(kubectl get pods --namespace=$namespace -l app=$app | grep -E '([0-9]+)/\1' | awk '{print $1}') -- /bin/bash -c "$k8cmd"
+    kubectl exec --namespace=$namespace $(kubectl get pods --namespace=$namespace -l app=$app -l cluster=$cluster | grep -E '([0-9]+)/\1' | awk '{print $1}') -- /bin/bash -c "$k8cmd"
 
 }
 
@@ -447,15 +448,15 @@ for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
         kubectl apply -f $p;
     done
 
-    podsReady=$(kubectl get pods --namespace=$NAMESPACE -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" |  wc -l)
+    podsReady=$(kubectl get pods --namespace=$NAMESPACE -l cluster=$CLUSTER_NAME -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" |  wc -l)
     podsReadyExpected=$(( $((i+g))<${#roles_yaml[@]} ? $((i+g)) : ${#roles_yaml[@]} ))
     # [ tty ] && tput sc @todo
     while [[ $count -le 600 ]] && [[ "$podsReady" -lt "$podsReadyExpected" ]]; do
-        podsReady=$(kubectl get pods --namespace=$NAMESPACE -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" | wc -l)
+        podsReady=$(kubectl get pods --namespace=$NAMESPACE -l cluster=$CLUSTER_NAME -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" | wc -l)
         if [[ $(($count%10)) == 0 ]]; then
             # [ tty ] && tput rc @todo
             echo -e "\n${Yellow} Current situation of pods: ${Color_Off}"
-            kubectl get pods --namespace=$NAMESPACE
+            kubectl get pods --namespace=$NAMESPACE -l cluster=$CLUSTER_NAME
             if [[ $with_pvc == true ]]; then
                 echo -e "${Yellow} and persistent volumes: ${Color_Off}"
                 kubectl get pv --namespace=$NAMESPACE | grep "$NAMESPACE"
@@ -483,8 +484,8 @@ echo "Starting the GPFS services in each Pod"
 
 echo -e "${Yellow} Setup mutual resolution on all the Pods... ${Color_Off}"
 
-pods=(`kubectl -n $NAMESPACE get pod -ojsonpath="{.items[*].metadata.name}"`)
-svcs=(`kubectl -n $NAMESPACE get pod -ojsonpath="{.items[*].status.podIP}"`)
+pods=(`kubectl -n $NAMESPACE -l cluster=$CLUSTER_NAME get pod -ojsonpath="{.items[*].metadata.name}"`)
+svcs=(`kubectl -n $NAMESPACE -l cluster=$CLUSTER_NAME get pod -ojsonpath="{.items[*].status.podIP}"`)
 size=`expr "${#pods[@]}" - 1`
 
 for i in $(seq 0 $size)
@@ -520,20 +521,20 @@ do
 done
 
 echo -e "${Yellow} Exec GPFS cluster setup on quorum-manager... ${Color_Off}"
-k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmcrcluster -N /root/node.list -C ${CLUSTER_NAME} -r /usr/bin/ssh -R /usr/bin/scp --profile gpfsprotocoldefaults"
+k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmcrcluster -N /root/node.list -C ${CLUSTER_NAME} -r /usr/bin/ssh -R /usr/bin/scp --profile gpfsprotocoldefaults"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 echo -e "${Yellow} Assign GPFS server licenses to managers... ${Color_Off}"
-k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmchlicense server --accept -N managerNodes"
+k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmchlicense server --accept -N managerNodes"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 echo -e "${Yellow} Check GPFS cluster configuration... ${Color_Off}"
-k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmlscluster"
+k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmlscluster"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 if [[ "$MON_DEPLOY" == "yes" ]]; then
   echo -e "${Yellow} Setup Prometheus and Grafana for cluster monitoring... ${Color_Off}"
-  CLUSTER_NAME=`k8s-exec ${CLUSTER_NAME}-mgr1 '/usr/lpp/mmfs/bin/mmlscluster -Y | grep ssh  | awk -F '"'"':'"'"' '"'"'{print \$7}'"'"`
+  CLUSTER_NAME=`k8s-exec mgr1 ${CLUSTER_NAME} '/usr/lpp/mmfs/bin/mmlscluster -Y | grep ssh  | awk -F '"'"':'"'"' '"'"'{print \$7}'"'"`
   declare -a targets
   for i in $(seq 1 $HOST_COUNT)
   do
@@ -572,7 +573,7 @@ fi
 echo -e "${Yellow} Start GPFS daemon on every manager... ${Color_Off}"
 failure=0; pids="";
 for i in $(seq 1 $HOST_COUNT); do
-    k8s-exec ${CLUSTER_NAME}-mgr${i} "/usr/lpp/mmfs/bin/mmstartup"
+    k8s-exec mgr${i} ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmstartup"
     pids="${pids} $!"
     sleep 0.1
 done
@@ -590,31 +591,31 @@ check_active() {
     [[ "${*}" =~ ^(active )*active$ ]]
     return
 }
-node_states=(`k8s-exec ${CLUSTER_NAME}-mgr1 '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
+node_states=(`k8s-exec mgr1 ${CLUSTER_NAME} '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
 until check_active ${node_states[*]}
 do
-  node_states=(`k8s-exec ${CLUSTER_NAME}-mgr1 '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
+  node_states=(`k8s-exec mgr1 ${CLUSTER_NAME} '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
 done
 
 if [[ $NSD_COUNT -gt 0 ]]; then
-    k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmgetstate -a"
+    k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmgetstate -a"
     echo -e "${Yellow} Create desired number of NSDs... ${Color_Off}"
-    k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmcrnsd -F /tmp/StanzaFile -v no"
+    k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmcrnsd -F /tmp/StanzaFile -v no"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
 else
     sleep 30
-    k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmgetstate -a"
+    k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmgetstate -a"
 fi
 
 if ! [ -z "$FS_NAME" ]; then
     echo -e "${Yellow} Create GPFS file system on previously created NSDs... ${Color_Off}"
-    k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmcrfs ${FS_NAME} -F /tmp/StanzaFile -A no -B 4M -m ${NSD_COUNT} -M ${NSD_COUNT} -n 100 -Q yes -j scatter -k nfs4 -r ${NSD_COUNT} -R ${NSD_COUNT} -T /ibm/${FS_NAME}"
+    k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmcrfs ${FS_NAME} -F /tmp/StanzaFile -A no -B 4M -m ${NSD_COUNT} -M ${NSD_COUNT} -n 100 -Q yes -j scatter -k nfs4 -r ${NSD_COUNT} -R ${NSD_COUNT} -T /ibm/${FS_NAME}"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
 
     echo -e "${Yellow} Mount GPFS file system on every manager... ${Color_Off}"
     failure=0; pids="";
     for i in $(seq 1 $HOST_COUNT); do
-        k8s-exec ${CLUSTER_NAME}-mgr${i} "/usr/lpp/mmfs/bin/mmmount ${FS_NAME}"
+        k8s-exec mgr${i} ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmmount ${FS_NAME}"
         pids="${pids} $!"
         sleep 0.1
     done
@@ -635,23 +636,23 @@ do
   mgr_pod_list+=("${CLUSTER_NAME}-mgr-$i-0")
 done
 printf -v mgr_pod_joined '%s,' "${mgr_pod_list[@]}"
-k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmperfmon config generate --collectors ${mgr_pod_joined%,}"
+k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmperfmon config generate --collectors ${mgr_pod_joined%,}"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
-k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmchnode --perfmon -N managerNodes"
+k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmchnode --perfmon -N managerNodes"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 for i in $(seq 1 $HOST_COUNT)
 do
-  k8s-exec ${CLUSTER_NAME}-mgr${i} "systemctl start pmsensors; systemctl stop pmsensors; systemctl start pmsensors"
+  k8s-exec mgr${i} ${CLUSTER_NAME} "systemctl start pmsensors; systemctl stop pmsensors; systemctl start pmsensors"
   if [[ "$?" -ne 0 ]]; then exit 1; fi
-  k8s-exec ${CLUSTER_NAME}-mgr${i} "systemctl start pmcollector"
+  k8s-exec mgr${i} ${CLUSTER_NAME} "systemctl start pmcollector"
   if [[ "$?" -ne 0 ]]; then exit 1; fi
 done
 
 if [[ "$MON_DEPLOY" == "yes" ]]; then
   for j in $(seq 1 $HOST_COUNT)
   do
-    k8s-exec gpfs-mgr$j-${CLUSTER_NAME} "systemctl daemon-reload && systemctl start gpfs_exporter"
+    k8s-exec mgr$j ${CLUSTER_NAME} "systemctl daemon-reload && systemctl start gpfs_exporter"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
   done
 fi
@@ -659,9 +660,9 @@ fi
 sleep 10
 
 if command -v oc &> /dev/null; then
-  oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po -lapp=${CLUSTER_NAME}-mgr1 -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
+  oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po -lapp=mgr1 -lcluster=$CLUSTER_NAME -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
 else
-  k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmhealth cluster show"
+  k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmhealth cluster show"
 fi
 
 # @todo add error handling
