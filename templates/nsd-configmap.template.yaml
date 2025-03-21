@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: nsd-configmap
+  name: nsd-configmap-%%%CLUSTER_NAME%%%
   namespace: %%%NAMESPACE%%%
 data:
   StanzaFile: |

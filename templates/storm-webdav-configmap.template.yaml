@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: application-indigo
+  name: application-indigo-%%%CLUSTER_NAME%%%
   namespace: %%%NAMESPACE%%%
 data:
   application-indigo.yml: |
@@ -33,7 +33,7 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: storage-area
+  name: storage-area-%%%CLUSTER_NAME%%%
   namespace: %%%NAMESPACE%%%
 data:
   sa.properties: |

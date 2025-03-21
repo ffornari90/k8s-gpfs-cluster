@@ -13,7 +13,7 @@ spec:
   tls:
     - hosts:
       - storm-webdav.%%%DOMAIN%%%
-      secretName: tls-ssl-storm-webdav-%%%NUMBER%%%
+      secretName: tls-ssl-storm-webdav
   rules:
   - host: storm-webdav.%%%DOMAIN%%%
     http:

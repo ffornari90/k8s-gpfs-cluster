@@ -10,5 +10,5 @@ spec:
       volumes:
       - name: nsd-configmap
         configMap:
-          name: nsd-configmap
+          name: nsd-configmap-%%%CLUSTER_NAME%%%
           defaultMode: 0644

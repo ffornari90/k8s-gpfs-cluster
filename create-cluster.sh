@@ -57,6 +57,7 @@ function gen_role () {
         ip_index=${ip_indices[$j]}
         cp "$TEMPLATES_DIR/gpfs-${role}.template.yaml" "gpfs-${role}${i}.yaml"
         sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "gpfs-${role}${i}.yaml"
+        sed -i "s/%%%CLUSTER_NAME%%%/${CLUSTER_NAME}/g" "gpfs-${role}${i}.yaml"
         sed -i "s/%%%USER%%%/${USER}/g" "gpfs-${role}${i}.yaml"
         sed -i "s/%%%NUMBER%%%/${i}/g" "gpfs-${role}${i}.yaml"
         sed -i "s|%%%IMAGE_REPO%%%|${image_repo}|g" "gpfs-${role}${i}.yaml"
@@ -91,7 +92,7 @@ function gen_role () {
             fi
         done
         sed -i "s/%%%NODENAME%%%/${hostname}/g" "gpfs-${role}${i}.yaml"
-        sed -i "s/%%%PODNAME%%%/${hostname%%.*}-gpfs-${role}-${i}/g" "gpfs-${role}${i}.yaml"
+        sed -i "s/%%%PODNAME%%%/${CLUSTER_NAME}-${role}-${i}/g" "gpfs-${role}${i}.yaml"
         sed -i "s/%%%POD_IP%%%/${pod_ip}/g" "gpfs-${role}${i}.yaml"
     done
 }
@@ -272,7 +273,7 @@ echo "VERSION=$VERSION"
 # **********************************************************************************************
 
 TEMPLATES_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/templates" # one-liner that gives the full directory name of the script no matter where it is being called from.
-GPFS_INSTANCE_DIR="gpfs-instance-$NAMESPACE"
+GPFS_INSTANCE_DIR="gpfs-instance-$CLUSTER_NAME"
 mkdir $GPFS_INSTANCE_DIR
 cd $GPFS_INSTANCE_DIR
 
@@ -289,10 +290,12 @@ sed -i "s/%%%VERSION%%%/${VERSION}/g" "init-configmap.yaml"
 
 cp "$TEMPLATES_DIR/cluster-configmap.template.yaml" "cluster-configmap.yaml"
 sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "cluster-configmap.yaml"
+sed -i "s/%%%CLUSTER_NAME%%%/${CLUSTER_NAME}/g" "cluster-configmap.yaml"
 
 if [[ $NSD_COUNT -gt 0 ]]; then
   cp "$TEMPLATES_DIR/nsd-configmap.template.yaml" "nsd-configmap.yaml"
   sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "nsd-configmap.yaml"
+  sed -i "s/%%%CLUSTER_NAME%%%/${CLUSTER_NAME}/g" "nsd-configmap.yaml"
 fi
 
 if [[ "$MON_DEPLOY" == "yes" ]]; then
@@ -319,7 +322,7 @@ echo -e "${Yellow} Node list: ${Color_Off}"
 for i in $(seq 1 $HOST_COUNT)
 do
   j=`expr $i - 1`
-  echo "   ${HOST_ARRAY[$j]%%.*}-gpfs-mgr-$i-0:manager" | tee -a "cluster-configmap.yaml"
+  echo "   ${CLUSTER_NAME}-mgr-$i-0:manager" | tee -a "cluster-configmap.yaml"
 done
 
 declare -a HOST_IPS
@@ -332,7 +335,7 @@ done
 for i in $(seq 1 $QRM_COUNT)
 do
   j=`expr $i - 1`
-  sed -i "s/${HOST_ARRAY[$j]%%.*}-gpfs-mgr-$i-0:manager/${HOST_ARRAY[$j]%%.*}-gpfs-mgr-$i-0:quorum-manager/" "cluster-configmap.yaml"
+  sed -i "s/${CLUSTER_NAME}-mgr-$i-0:manager/${CLUSTER_NAME}-mgr-$i-0:quorum-manager/" "cluster-configmap.yaml"
 done
 
 printf '\n'
@@ -354,7 +357,7 @@ if [[ $NSD_COUNT -gt 0 ]]; then
         echo '   %nsd:
           device='${DEVICE_ARRAY[$DEVICE_INDEX]}'
           nsd=nsd'$NSD_COUNTER'
-          servers='"${HOST_ARRAY[$k]%%.*}-gpfs-mgr-${j}-0"'
+          servers='"${CLUSTER_NAME}-mgr-${j}-0"'
           usage='$US'
           failureGroup='$FG'
           pool=system' | tee -a "nsd-configmap.yaml"
@@ -370,7 +373,7 @@ if [[ $NSD_COUNT -gt 0 ]]; then
         echo '   %nsd:
           device='${DEVICE_ARRAY[$DEVICE_INDEX]}'
           nsd=nsd'$NSD_COUNTER'
-          servers='"${HOST_ARRAY[$k]%%.*}-gpfs-mgr-${j}-0"'
+          servers='"${CLUSTER_NAME}-mgr-${j}-0"'
           usage=dataAndMetadata
           failureGroup='$FG'
           pool=system' | tee -a "nsd-configmap.yaml"
@@ -380,7 +383,8 @@ if [[ $NSD_COUNT -gt 0 ]]; then
     fi
   done
   cp "$TEMPLATES_DIR/nsd-patch.template.yaml" "nsd-patch.yaml"
-  sed -i "s/%%%PODNAME%%%/${HOST_ARRAY[0]%%.*}-gpfs-mgr-1/g" "nsd-patch.yaml"
+  sed -i "s/%%%PODNAME%%%/${CLUSTER_NAME}-mgr-1/g" "nsd-patch.yaml"
+  sed -i "s/%%%CLUSTER_NAME%%%/${CLUSTER_NAME}/g" "nsd-patch.yaml"
   kubectl patch --local=true -f "gpfs-mgr1.yaml" --patch "$(cat nsd-patch.yaml)" -o yaml > tmpfile
   cat tmpfile > "gpfs-mgr1.yaml"
   rm -f tmpfile
@@ -391,6 +395,7 @@ for i in $(seq 1 $HOST_COUNT)
 do
   cp "$TEMPLATES_DIR/gpfs-mgr-svc.template.yaml" "mgr-svc${i}.yaml"
   sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "mgr-svc${i}.yaml"
+  sed -i "s/%%%CLUSTER_NAME%%%/$CLUSTER_NAME/g" "mgr-svc${i}.yaml"
   sed -i "s/%%%NUMBER%%%/${i}/g" "mgr-svc${i}.yaml"
 done
 
@@ -433,10 +438,10 @@ count=1;
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
     j=`expr $i + 1`
     scp -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" hosts "${USER}@${HOST_IPS[$i]}": > /dev/null 2>&1
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j-$NAMESPACE/var_mmfs\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j-$NAMESPACE/root_ssh\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j-$NAMESPACE/etc_ssh\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/mgr$j-$NAMESPACE/\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j-$CLUSTER_NAME/var_mmfs\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j-$CLUSTER_NAME/root_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mkdir -p /root/mgr$j-$CLUSTER_NAME/etc_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$i]}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/mgr$j-$CLUSTER_NAME/\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
@@ -503,7 +508,7 @@ do
   do
     j=`expr $i - 1`
     ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IPS[$j]}" -l "${USER}" \
-    "echo \""$(kubectl -n $NAMESPACE exec -it $pod -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i-$NAMESPACE/root_ssh/authorized_keys"
+    "echo \""$(kubectl -n $NAMESPACE exec -it $pod -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i-$CLUSTER_NAME/root_ssh/authorized_keys"
   done
 done
 for pod1 in ${pods[@]}
@@ -515,20 +520,20 @@ do
 done
 
 echo -e "${Yellow} Exec GPFS cluster setup on quorum-manager... ${Color_Off}"
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmcrcluster -N /root/node.list -C ${CLUSTER_NAME} -r /usr/bin/ssh -R /usr/bin/scp --profile gpfsprotocoldefaults"
+k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmcrcluster -N /root/node.list -C ${CLUSTER_NAME} -r /usr/bin/ssh -R /usr/bin/scp --profile gpfsprotocoldefaults"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 echo -e "${Yellow} Assign GPFS server licenses to managers... ${Color_Off}"
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmchlicense server --accept -N managerNodes"
+k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmchlicense server --accept -N managerNodes"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 echo -e "${Yellow} Check GPFS cluster configuration... ${Color_Off}"
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmlscluster"
+k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmlscluster"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 if [[ "$MON_DEPLOY" == "yes" ]]; then
   echo -e "${Yellow} Setup Prometheus and Grafana for cluster monitoring... ${Color_Off}"
-  CLUSTER_NAME=`k8s-exec gpfs-mgr1 '/usr/lpp/mmfs/bin/mmlscluster -Y | grep ssh  | awk -F '"'"':'"'"' '"'"'{print \$7}'"'"`
+  CLUSTER_NAME=`k8s-exec ${CLUSTER_NAME}-mgr1 '/usr/lpp/mmfs/bin/mmlscluster -Y | grep ssh  | awk -F '"'"':'"'"' '"'"'{print \$7}'"'"`
   declare -a targets
   for i in $(seq 1 $HOST_COUNT)
   do
@@ -567,7 +572,7 @@ fi
 echo -e "${Yellow} Start GPFS daemon on every manager... ${Color_Off}"
 failure=0; pids="";
 for i in $(seq 1 $HOST_COUNT); do
-    k8s-exec gpfs-mgr${i} "/usr/lpp/mmfs/bin/mmstartup"
+    k8s-exec ${CLUSTER_NAME}-mgr${i} "/usr/lpp/mmfs/bin/mmstartup"
     pids="${pids} $!"
     sleep 0.1
 done
@@ -585,31 +590,31 @@ check_active() {
     [[ "${*}" =~ ^(active )*active$ ]]
     return
 }
-node_states=(`k8s-exec gpfs-mgr1 '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
+node_states=(`k8s-exec ${CLUSTER_NAME}-mgr1 '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
 until check_active ${node_states[*]}
 do
-  node_states=(`k8s-exec gpfs-mgr1 '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
+  node_states=(`k8s-exec ${CLUSTER_NAME}-mgr1 '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
 done
 
 if [[ $NSD_COUNT -gt 0 ]]; then
-    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmgetstate -a"
+    k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmgetstate -a"
     echo -e "${Yellow} Create desired number of NSDs... ${Color_Off}"
-    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmcrnsd -F /tmp/StanzaFile -v no"
+    k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmcrnsd -F /tmp/StanzaFile -v no"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
 else
     sleep 30
-    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmgetstate -a"
+    k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmgetstate -a"
 fi
 
 if ! [ -z "$FS_NAME" ]; then
     echo -e "${Yellow} Create GPFS file system on previously created NSDs... ${Color_Off}"
-    k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmcrfs ${FS_NAME} -F /tmp/StanzaFile -A no -B 4M -m ${NSD_COUNT} -M ${NSD_COUNT} -n 100 -Q yes -j scatter -k nfs4 -r ${NSD_COUNT} -R ${NSD_COUNT} -T /ibm/${FS_NAME}"
+    k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmcrfs ${FS_NAME} -F /tmp/StanzaFile -A no -B 4M -m ${NSD_COUNT} -M ${NSD_COUNT} -n 100 -Q yes -j scatter -k nfs4 -r ${NSD_COUNT} -R ${NSD_COUNT} -T /ibm/${FS_NAME}"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
 
     echo -e "${Yellow} Mount GPFS file system on every manager... ${Color_Off}"
     failure=0; pids="";
     for i in $(seq 1 $HOST_COUNT); do
-        k8s-exec gpfs-mgr${i} "/usr/lpp/mmfs/bin/mmmount ${FS_NAME}"
+        k8s-exec ${CLUSTER_NAME}-mgr${i} "/usr/lpp/mmfs/bin/mmmount ${FS_NAME}"
         pids="${pids} $!"
         sleep 0.1
     done
@@ -627,26 +632,26 @@ declare -a mgr_pod_list
 for i in $(seq 1 $HOST_COUNT)
 do
   j=`expr $i - 1`
-  mgr_pod_list+=("${HOST_ARRAY[$j]%%.*}-gpfs-mgr-$i-0")
+  mgr_pod_list+=("${CLUSTER_NAME}-mgr-$i-0")
 done
 printf -v mgr_pod_joined '%s,' "${mgr_pod_list[@]}"
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmperfmon config generate --collectors ${mgr_pod_joined%,}"
+k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmperfmon config generate --collectors ${mgr_pod_joined%,}"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmchnode --perfmon -N managerNodes"
+k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmchnode --perfmon -N managerNodes"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 for i in $(seq 1 $HOST_COUNT)
 do
-  k8s-exec gpfs-mgr$i "systemctl start pmsensors; systemctl stop pmsensors; systemctl start pmsensors"
+  k8s-exec ${CLUSTER_NAME}-mgr${i} "systemctl start pmsensors; systemctl stop pmsensors; systemctl start pmsensors"
   if [[ "$?" -ne 0 ]]; then exit 1; fi
-  k8s-exec gpfs-mgr$i "systemctl start pmcollector"
+  k8s-exec ${CLUSTER_NAME}-mgr${i} "systemctl start pmcollector"
   if [[ "$?" -ne 0 ]]; then exit 1; fi
 done
 
 if [[ "$MON_DEPLOY" == "yes" ]]; then
   for j in $(seq 1 $HOST_COUNT)
   do
-    k8s-exec gpfs-mgr$j "systemctl daemon-reload && systemctl start gpfs_exporter"
+    k8s-exec gpfs-mgr$j-${CLUSTER_NAME} "systemctl daemon-reload && systemctl start gpfs_exporter"
     if [[ "$?" -ne 0 ]]; then exit 1; fi
   done
 fi
@@ -654,9 +659,9 @@ fi
 sleep 10
 
 if command -v oc &> /dev/null; then
-  oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po -lapp=gpfs-mgr1 -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
+  oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po -lapp=${CLUSTER_NAME}-mgr1 -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
 else
-  k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmhealth cluster show"
+  k8s-exec ${CLUSTER_NAME}-mgr1 "/usr/lpp/mmfs/bin/mmhealth cluster show"
 fi
 
 # @todo add error handling

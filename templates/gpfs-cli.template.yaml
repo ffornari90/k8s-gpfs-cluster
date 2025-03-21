@@ -7,18 +7,18 @@ metadata:
   name: %%%PODNAME%%%
   namespace: %%%NAMESPACE%%%
   labels:
-    app: gpfs-cli%%%NUMBER%%%
+    app: gpfs-cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%
     role: gpfs-cli
 spec:
   selector:
     matchLabels:
-      app: gpfs-cli%%%NUMBER%%%
+      app: gpfs-cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%
       role: gpfs-cli
   serviceName: &name gpfs-cli%%%NUMBER%%%
   replicas: 1
   template:
     metadata:
-      name: &name gpfs-cli%%%NUMBER%%%
+      name: &name gpfs-cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%
       labels:
         app: *name
         role: gpfs-cli
@@ -35,27 +35,27 @@ spec:
           path: /home/%%%USER%%%
       - name: hostsfile
         hostPath:
-          path: /root/cli%%%NUMBER%%%-%%%NAMESPACE%%%/hosts
+          path: /root/cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%/hosts
       - name: gendir
         hostPath:
-          path: /root/cli%%%NUMBER%%%-%%%NAMESPACE%%%/var_mmfs
+          path: /root/cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%/var_mmfs
       - name: etcsshdir
         hostPath:
-          path: /root/cli%%%NUMBER%%%-%%%NAMESPACE%%%/etc_ssh
+          path: /root/cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%/etc_ssh
       - name: rootsshdir
         hostPath:
-          path: /root/cli%%%NUMBER%%%-%%%NAMESPACE%%%/root_ssh
+          path: /root/cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%/root_ssh
       - name: application-indigo
         configMap:
-          name: application-indigo
+          name: application-indigo-%%%CLUSTER_NAME%%%
           defaultMode: 0644
       - name: storage-area
         configMap:
-          name: storage-area
+          name: storage-area-%%%CLUSTER_NAME%%%
           defaultMode: 0644
       - name: certs-volume
         secret:
-          secretName: tls-ssl-storm-webdav-%%%NUMBER%%%
+          secretName: tls-ssl-storm-webdav
           items:
           - key: tls.crt
             path: tls.crt

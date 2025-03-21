@@ -23,6 +23,7 @@ function usage () {
     echo "      In practice, must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character"
     echo "-a    Specify ingress controller IP address (default is 192.168.0.1)"
     echo "-b    Specify docker image repository to be used for node creation (default is $CC_IMAGE_REPO)"
+    echo "-C    Specify the name of the GPFS cluster to be deployed (default is 'gpfs\$(date +%s)')"
     echo "-d    Specify domain name to be used for StoRM-WebDAV service (default is example.com)"
     echo "-i    Specify docker image tag to be used for node creation (default is $CC_IMAGE_TAG)"
     echo "-p    Specify an OIDC provider for StoRM-WebDAV authentication (default is iam-t1-computing.cloud.cnaf.infn.it)"
@@ -57,6 +58,7 @@ function gen_role () {
     fi
     cp "$TEMPLATES_DIR/gpfs-${role}.template.yaml" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%NAMESPACE%%%/${NAMESPACE}/g" "gpfs-${role}${index}.yaml"
+    sed -i "s/%%%CLUSTER_NAME%%%/${CLUSTER_NAME}/g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%USER%%%/${USER}/g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%NUMBER%%%/${index}/g" "gpfs-${role}${index}.yaml"
     sed -i "s|%%%IMAGE_REPO%%%|${image_repo}|g" "gpfs-${role}${index}.yaml"
@@ -133,6 +135,7 @@ fi
 
 # defaults
 NAMESPACE="ns$(date +%s)"
+CLUSTER_NAME="gpfs$(date +%s)"
 CC_IMAGE_REPO="ffornari/gpfs-storm-webdav"
 CC_IMAGE_TAG="rhel8"
 HOST_COUNT=0
@@ -150,11 +153,16 @@ DOMAIN="example.com"
 CONTROLLER_IP="192.168.0.1"
 CLUSTER_ISSUER="clusterissuer"
 
-while getopts 'N:a:b:d:i:p:c:k:j:m:t:u:v:h' opt; do
+while getopts 'N:C:a:b:d:i:p:c:k:j:m:t:u:v:h' opt; do
     case "${opt}" in
         N) # a DNS-1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
             if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
                 then NAMESPACE=${OPTARG}
+                else echo "! Wrong arg -$opt"; exit 1
+            fi ;;
+        C) # cluster name must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
+            if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
+                then CLUSTER_NAME=${OPTARG}
                 else echo "! Wrong arg -$opt"; exit 1
             fi ;;
         a) # ingress controller ip address must consist of 4 sequences of numeric characters separated by dots
@@ -228,6 +236,7 @@ done
 shift $((OPTIND-1))
 
 echo "NAMESPACE=$NAMESPACE"
+echo "CLUSTER_NAME=$CLUSTER_NAME"
 echo "CC_IMAGE_REPO=$CC_IMAGE_REPO"
 echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "TIMEOUT=$TIMEOUT"
@@ -247,7 +256,7 @@ echo "CLUSTER_ISSUER=$CLUSTER_ISSUER"
 # **********************************************************************************************
 
 TEMPLATES_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )/templates" # one-liner that gives the full directory name of the script no matter where it is being called from.
-GPFS_INSTANCE_DIR="gpfs-instance-$NAMESPACE"
+GPFS_INSTANCE_DIR="gpfs-instance-$CLUSTER_NAME"
 if [ ! -d $GPFS_INSTANCE_DIR ]; then
   echo "k8s namespace $NAMESPACE does not exist. Exit."
   exit 1
@@ -334,10 +343,10 @@ HOST_IP=$(kubectl get nodes ${HOST_NAME} -ojsonpath='{.status.addresses[0].addre
 POD_NAME="$(cat $CLI_FILE | grep -m1 name | awk '{print $2}')-0"
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
     scp -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" hosts "${USER}"@"${HOST_IP}": > /dev/null 2>&1
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}-$NAMESPACE/var_mmfs\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}-$NAMESPACE/root_ssh\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}-$NAMESPACE/etc_ssh\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/cli${index}-$NAMESPACE/\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}-$CLUSTER_NAME/var_mmfs\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}-$CLUSTER_NAME/root_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}-$CLUSTER_NAME/etc_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/cli${index}-$CLUSTER_NAME/\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
@@ -419,28 +428,28 @@ for i in $(seq 1 ${#mgr_pods[@]})
 do
   j=`expr $i - 1`
   ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" \
-  "echo \""$(kubectl -n $NAMESPACE exec -it ${mgr_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index-$NAMESPACE/root_ssh/authorized_keys"
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${mgr_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index-$CLUSTER_NAME/root_ssh/authorized_keys"
 done
 
 for i in $(seq 1 ${#cli_pods[@]})
 do
   j=`expr $i - 1`
   ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" \
-  "echo \""$(kubectl -n $NAMESPACE exec -it ${cli_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index-$NAMESPACE/root_ssh/authorized_keys"
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${cli_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index-$CLUSTER_NAME/root_ssh/authorized_keys"
 done
 
 for i in $(seq 1 ${#mgr_ips[@]})
 do
   j=`expr $i - 1`
   ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${mgr_ips[$j]}" -l "${USER}" \
-  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i-$NAMESPACE/root_ssh/authorized_keys"
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i-$CLUSTER_NAME/root_ssh/authorized_keys"
 done
 
 for i in $(seq 1 ${#cli_ips[@]})
 do
   j=`expr $i - 1`
   ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${cli_ips[$j]}" -l "${USER}" \
-  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$i-$NAMESPACE/root_ssh/authorized_keys"
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$i-$CLUSTER_NAME/root_ssh/authorized_keys"
 done
 
 for pod in ${cli_pods[@]}
@@ -548,6 +557,7 @@ echo -e "${Green} Exec went OK for all the Pods ${Color_Off}"
 # print configuration summary
 echo ""
 echo "NAMESPACE=$NAMESPACE"
+echo "CLUSTER_NAME=$CLUSTER_NAME"
 echo "CC_IMAGE_REPO=$CC_IMAGE_REPO"
 echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "TIMEOUT=$TIMEOUT"
