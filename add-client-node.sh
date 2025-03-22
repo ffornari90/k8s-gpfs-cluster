@@ -26,7 +26,7 @@ function usage () {
     echo "-C    Specify the name of the GPFS cluster to be deployed (default is 'gpfs\$(date +%s)')"
     echo "-d    Specify domain name to be used for StoRM-WebDAV service (default is example.com)"
     echo "-i    Specify docker image tag to be used for node creation (default is $CC_IMAGE_TAG)"
-    echo "-p    Specify an OIDC provider for StoRM-WebDAV authentication (default is iam-t1-computing.cloud.cnaf.infn.it)"
+    echo "-p    Specify an OIDC provider for StoRM-WebDAV authentication (default is iam.example.com)"
     echo "-c    Specify a CA certificate to be used for OIDC provider (default is none)"
     echo "-k    Specify SSH key path for cluster creation (default is ~/.ssh/id_rsa)"
     echo "-j    Specify jump host for cluster creation (default is jumphost)"
@@ -89,7 +89,7 @@ function gen_role () {
         fi
     done
     sed -i "s/%%%NODENAME%%%/${selected_worker}/g" "gpfs-${role}${index}.yaml"
-    sed -i "s/%%%PODNAME%%%/${selected_worker%%.*}-gpfs-${role}-${index}/g" "gpfs-${role}${index}.yaml"
+    sed -i "s/%%%PODNAME%%%/${CLUSTER_NAME}-${role}-${index}/g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%POD_IP%%%/${pod_ip}/g" "gpfs-${role}${index}.yaml"
     if [[ $iam_ca == true ]] && [[ $role == "cli" ]]; then
         cp "$TEMPLATES_DIR/pv-patch.template.yaml" "pv-patch-${index}.yaml"
@@ -105,9 +105,10 @@ function k8s-exec() {
 
     local namespace=$NAMESPACE
     local app=$1
-    [[ $2 ]] && local k8cmd=${@:2}
+    local cluster=$2
+    [[ $3 ]] && local k8cmd=${@:3}
 
-    kubectl exec --namespace=$namespace $(kubectl get pods --namespace=$namespace -l app=$app | grep -E '([0-9]+)/\1' | awk '{print $1}') -- /bin/bash -c "$k8cmd"
+    kubectl exec --namespace=$namespace $(kubectl get pods --namespace=$namespace --selector app=$app,cluster=$cluster | grep -E '([0-9]+)/\1' | awk '{print $1}') -- /bin/bash -c "$k8cmd"
 
 }
 
@@ -116,9 +117,10 @@ function k8s-exec-bkg() {
 
     local namespace=$NAMESPACE
     local app=$1
+    local cluster=$2
     shift
     local k8cmd="$@"
-    local pod_name=$(kubectl get pods --namespace=$namespace -l app=$app | grep -E '([0-9]+)/\1' | awk '{print $1}')
+    local pod_name=$(kubectl get pods --namespace=$namespace --selector app=$app,cluster=$cluster | grep -E '([0-9]+)/\1' | awk '{print $1}')
 
     kubectl exec --namespace=$namespace $pod_name -- /bin/bash -c "nohup $k8cmd > /dev/null 2>&1 & disown"
 }
@@ -148,7 +150,7 @@ workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="true" -ojsonpath="
 WORKER_COUNT="${#workers[@]}"
 with_iam_ca=false
 IAM_CA_FILE=""
-OIDC_PROVIDER="iam-t1-computing.cloud.cnaf.infn.it"
+OIDC_PROVIDER="iam.example.com"
 DOMAIN="example.com"
 CONTROLLER_IP="192.168.0.1"
 CLUSTER_ISSUER="clusterissuer"
@@ -262,7 +264,7 @@ if [ ! -d $GPFS_INSTANCE_DIR ]; then
   exit 1
 fi
 cd $GPFS_INSTANCE_DIR
-FS_NAME=$(k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmlsfs all_local -T | grep attributes | awk -F\"/\" \"{print \\\$3}\" | sed \"s/://g\"")
+FS_NAME=$(k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmlsfs all_local -T | grep attributes | awk -F\"/\" \"{print \\\$3}\" | sed \"s/://g\"")
 
 if [ $with_iam_ca == true ]; then
   if ! kubectl get secret iam-ca -n $NAMESPACE &> /dev/null; then
@@ -290,6 +292,7 @@ sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NUMBER%%%/${index}/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-svc.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-configmap.yaml"
+sed -i "s/%%%CLUSTER_NAME%%%/$CLUSTER_NAME/g" "storm-webdav-configmap.yaml"
 sed -i "s/%%%FS_NAME%%%/$FS_NAME/g" "storm-webdav-configmap.yaml"
 sed -i "s/%%%OIDC_PROVIDER%%%/$OIDC_PROVIDER/g" "storm-webdav-configmap.yaml"
 sed -i "s#%%%REDIRECT_URI%%%#$REDIRECT_URI#g" "client-req${index}.json"
@@ -321,17 +324,17 @@ kubectl apply -f "storm-webdav-configmap.yaml"
 kubectl apply -f "cli-svc${index}.yaml"
 kubectl apply -f "storm-webdav-svc.yaml"
 
-mkdir -p "certs${index}"
+mkdir -p "certs"
 CAROOT=/etc/grid-security/certificates/ \
-mkcert -install -cert-file ./certs${index}/tls.crt \
--key-file ./certs${index}/tls.key storm-webdav.$DOMAIN
+mkcert -install -cert-file ./certs/tls.crt \
+-key-file ./certs/tls.key storm-webdav.$DOMAIN
 
-if ! kubectl get secret tls-ssl-storm-webdav-${index} -n $NAMESPACE &> /dev/null; then
+if ! kubectl get secret tls-ssl-storm-webdav -n $NAMESPACE &> /dev/null; then
   kubectl create secret generic \
-   tls-ssl-storm-webdav-${index} \
+   tls-ssl-storm-webdav \
    -n $NAMESPACE \
-   --from-file=./certs${index}/tls.key \
-   --from-file=./certs${index}/tls.crt
+   --from-file=./certs/tls.key \
+   --from-file=./certs/tls.crt
 fi
 
 # Conditionally split the pod creation in groups, since apparently the external provisioner (manila?) can't deal with too many volume-creation request per second
@@ -352,15 +355,15 @@ for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
         kubectl apply -f $p;
     done
 
-    podsReady=$(kubectl get pods --namespace=$NAMESPACE -lapp=gpfs-cli${index} -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" |  wc -l)
+    podsReady=$(kubectl get pods --namespace=$NAMESPACE --selector app=cli${index},cluster=$CLUSTER_NAME -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" |  wc -l)
     podsReadyExpected=$(( $((i+g))<${#roles_yaml[@]} ? $((i+g)) : ${#roles_yaml[@]} ))
     # [ tty ] && tput sc @todo
     while [[ $count -le 600 ]] && [[ "$podsReady" -lt "$podsReadyExpected" ]]; do
-        podsReady=$(kubectl get pods --namespace=$NAMESPACE -lapp=gpfs-cli${index} -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" | wc -l)
+        podsReady=$(kubectl get pods --namespace=$NAMESPACE --selector app=cli${index},cluster=$CLUSTER_NAME -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" | wc -l)
         if [[ $(($count%10)) == 0 ]]; then
             # [ tty ] && tput rc @todo
             echo -e "\n${Yellow} Current situation of pods: ${Color_Off}"
-            kubectl get pods --namespace=$NAMESPACE
+            kubectl get pods --namespace=$NAMESPACE --selector app=cli${index},cluster=$CLUSTER_NAME
             if [[ $with_pvc == true ]]; then
                 echo -e "${Yellow} and persistent volumes: ${Color_Off}"
                 kubectl get pv --namespace=$NAMESPACE | grep "$NAMESPACE"
@@ -387,8 +390,8 @@ echo "Starting the GPFS services in each Pod"
 
 echo -e "${Yellow} Setup mutual resolution on all the Pods... ${Color_Off}"
 
-pods=(`kubectl -n $NAMESPACE get pod -ojsonpath="{.items[*].metadata.name}"`)
-svcs=(`kubectl -n $NAMESPACE get pod -ojsonpath="{.items[*].status.podIP}"`)
+pods=(`kubectl -n $NAMESPACE get pod -l cluster=$CLUSTER_NAME -ojsonpath="{.items[*].metadata.name}"`)
+svcs=(`kubectl -n $NAMESPACE get pod -l cluster=$CLUSTER_NAME -ojsonpath="{.items[*].status.podIP}"`)
 size=`expr "${#pods[@]}" - 1`
 
 for i in $(seq 0 $size)
@@ -407,10 +410,10 @@ rm -f hosts.tmp
 
 echo -e "${Yellow} Distribute SSH keys on all the Pods... ${Color_Off}"
 
-mgr_hosts=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-mgr -ojsonpath="{.items[*].spec.nodeName}"`)
-mgr_pods=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-mgr -ojsonpath="{.items[*].metadata.name}"`)
-cli_hosts=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-cli -ojsonpath="{.items[*].spec.nodeName}"`)
-cli_pods=(`kubectl -n $NAMESPACE get pod -lrole=gpfs-cli -ojsonpath="{.items[*].metadata.name}"`)
+mgr_hosts=(`kubectl -n $NAMESPACE get pod --selector role=gpfs-mgr,cluster=$CLUSTER_NAME -ojsonpath="{.items[*].spec.nodeName}"`)
+mgr_pods=(`kubectl -n $NAMESPACE get pod --selector role=gpfs-mgr,cluster=$CLUSTER_NAME -ojsonpath="{.items[*].metadata.name}"`)
+cli_hosts=(`kubectl -n $NAMESPACE get pod --selector role=gpfs-cli,cluster=$CLUSTER_NAME -ojsonpath="{.items[*].spec.nodeName}"`)
+cli_pods=(`kubectl -n $NAMESPACE get pod --selector role=gpfs-cli,cluster=$CLUSTER_NAME -ojsonpath="{.items[*].metadata.name}"`)
 
 declare -a mgr_ips
 for node in ${mgr_hosts[@]}
@@ -465,20 +468,20 @@ do
 done
 
 echo -e "${Yellow} Add GPFS node to the cluster from quorum-manager... ${Color_Off}"
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmaddnode -N $POD_NAME:client"
+k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmaddnode -N $POD_NAME:client"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 echo -e "${Yellow} Assign GPFS client licenses to node... ${Color_Off}"
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmchlicense client --accept -N $POD_NAME"
+k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmchlicense client --accept -N $POD_NAME"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 echo -e "${Yellow} Check GPFS cluster configuration... ${Color_Off}"
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmlscluster"
+k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmlscluster"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 echo -e "${Yellow} Start GPFS daemon on client node... ${Color_Off}"
 failure=0; pids="";
-k8s-exec gpfs-cli${index} "/usr/lpp/mmfs/bin/mmstartup"
+k8s-exec cli${index} ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmstartup"
 pids="${pids} $!"
 sleep 0.1
 for pid in ${pids}; do
@@ -495,18 +498,18 @@ check_active() {
     [[ "${*}" =~ ^(active )*active$ ]]
     return
 }
-node_states=(`k8s-exec gpfs-mgr1 '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
+node_states=(`k8s-exec mgr1 ${CLUSTER_NAME} '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
 until check_active ${node_states[*]}
 do
-  node_states=(`k8s-exec gpfs-mgr1 '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
+  node_states=(`k8s-exec mgr1 ${CLUSTER_NAME} '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
 done
 
 sleep 30
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmgetstate -a"
+k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmgetstate -a"
 
 echo -e "${Yellow} Mount GPFS file system on client node... ${Color_Off}"
 failure=0; pids="";
-k8s-exec gpfs-cli${index} "/usr/lpp/mmfs/bin/mmmount all_local"
+k8s-exec cli${index} ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmmount all_local"
 pids="${pids} $!"
 sleep 0.1
 for pid in ${pids}; do
@@ -518,35 +521,35 @@ if [[ "${failure}" == "1" ]]; then
 fi
 
 echo -e "${Yellow} Setup sensors and collectors to gather monitoring metrics... ${Color_Off}"
-k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmchnode --perfmon -N ${POD_NAME}"
+k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmchnode --perfmon -N ${POD_NAME}"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
-k8s-exec gpfs-cli$index "systemctl start pmsensors; systemctl stop pmsensors; systemctl start pmsensors"
+k8s-exec cli${index} ${CLUSTER_NAME} "systemctl start pmsensors; systemctl stop pmsensors; systemctl start pmsensors"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
-k8s-exec gpfs-cli$index "systemctl start pmcollector"
+k8s-exec cli${index} ${CLUSTER_NAME} "systemctl start pmcollector"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 PROMETHEUS_FILE="prometheus.yaml"
 if [ -f "$PROMETHEUS_FILE" ]; then
   echo -e "${Yellow} Setup Prometheus and Grafana monitoring for client node... ${Color_Off}"
-  k8s-exec gpfs-cli$index "systemctl daemon-reload && systemctl start gpfs_exporter"
+  k8s-exec cli${index} ${CLUSTER_NAME} "systemctl daemon-reload && systemctl start gpfs_exporter"
   if [[ "$?" -ne 0 ]]; then exit 1; fi
 fi
 
 sleep 10
 
 if command -v oc &> /dev/null; then
-  oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po -lapp=gpfs-mgr1 -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
+  oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po --selector app=mgr1,cluster=$CLUSTER_NAME -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
 else
-  k8s-exec gpfs-mgr1 "/usr/lpp/mmfs/bin/mmhealth cluster show"
+  k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmhealth cluster show"
 fi
 
 echo -e "${Yellow} Starting StoRM-WebDAV service on client node... ${Color_Off}"
-k8s-exec gpfs-cli$index "su - storm -c \"cp /tmp/.storm-webdav/certs/tls.key /etc/grid-security/storm-webdav/hostkey.pem\""
+k8s-exec cli${index} ${CLUSTER_NAME} "su - storm -c \"cp /tmp/.storm-webdav/certs/tls.key /etc/grid-security/storm-webdav/hostkey.pem\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi
-k8s-exec gpfs-cli$index "su - storm -c \"cp /tmp/.storm-webdav/certs/tls.crt /etc/grid-security/storm-webdav/hostcert.pem\""
+k8s-exec cli${index} ${CLUSTER_NAME} "su - storm -c \"cp /tmp/.storm-webdav/certs/tls.crt /etc/grid-security/storm-webdav/hostcert.pem\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi
-k8s-exec-bkg gpfs-cli$index "su - storm -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
+k8s-exec-bkg cli${index} ${CLUSTER_NAME} "su - storm -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
 -Dspring.profiles.active=\$STORM_WEBDAV_PROFILE -Dlogging.config=\$STORM_WEBDAV_LOG_CONFIGURATION -jar \$STORM_WEBDAV_JAR \
 > \$STORM_WEBDAV_OUT 2>\$STORM_WEBDAV_ERR\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi

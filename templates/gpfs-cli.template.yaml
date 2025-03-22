@@ -16,7 +16,7 @@ spec:
       app: cli%%%NUMBER%%%
       cluster: %%%CLUSTER_NAME%%%
       role: gpfs-cli
-  serviceName: &name gpfs-cli%%%NUMBER%%%
+  serviceName: &name cli%%%NUMBER%%%
   replicas: 1
   template:
     metadata:

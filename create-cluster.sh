@@ -104,7 +104,7 @@ function k8s-exec() {
     local cluster=$2
     [[ $3 ]] && local k8cmd=${@:3}
 
-    kubectl exec --namespace=$namespace $(kubectl get pods --namespace=$namespace -l app=$app -l cluster=$cluster | grep -E '([0-9]+)/\1' | awk '{print $1}') -- /bin/bash -c "$k8cmd"
+    kubectl exec --namespace=$namespace $(kubectl get pods --namespace=$namespace --selector app=$app,cluster=$cluster | grep -E '([0-9]+)/\1' | awk '{print $1}') -- /bin/bash -c "$k8cmd"
 
 }
 
@@ -484,8 +484,8 @@ echo "Starting the GPFS services in each Pod"
 
 echo -e "${Yellow} Setup mutual resolution on all the Pods... ${Color_Off}"
 
-pods=(`kubectl -n $NAMESPACE -l cluster=$CLUSTER_NAME get pod -ojsonpath="{.items[*].metadata.name}"`)
-svcs=(`kubectl -n $NAMESPACE -l cluster=$CLUSTER_NAME get pod -ojsonpath="{.items[*].status.podIP}"`)
+pods=(`kubectl -n $NAMESPACE get pod -l cluster=$CLUSTER_NAME -ojsonpath="{.items[*].metadata.name}"`)
+svcs=(`kubectl -n $NAMESPACE get pod -l cluster=$CLUSTER_NAME -ojsonpath="{.items[*].status.podIP}"`)
 size=`expr "${#pods[@]}" - 1`
 
 for i in $(seq 0 $size)
@@ -660,7 +660,7 @@ fi
 sleep 10
 
 if command -v oc &> /dev/null; then
-  oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po -lapp=mgr1 -lcluster=$CLUSTER_NAME -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
+  oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po --selector app=mgr1,cluster=$CLUSTER_NAME -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
 else
   k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmhealth cluster show"
 fi

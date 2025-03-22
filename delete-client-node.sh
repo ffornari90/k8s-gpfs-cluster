@@ -15,10 +15,10 @@ ssh_key=$4
 jumphost=$5
 workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="true" -ojsonpath="{.items[*].metadata.name}"`)
 WORKER_COUNT="${#workers[@]}"
-cli_hosts=(`kubectl -n $namespace get pod -lrole=gpfs-cli -ojsonpath="{.items[*].spec.nodeName}"`)
-clis=(`kubectl -n $namespace get pods -lrole=gpfs-cli -ojsonpath="{.items[*].metadata.name}"`)
-mgrs=(`kubectl -n $namespace get pods -lrole=gpfs-mgr -ojsonpath="{.items[*].metadata.name}"`)
-MGR_POD_NAME=(`kubectl -n $namespace get pods -lapp=gpfs-mgr1 -ojsonpath="{.items[*].metadata.name}"`)
+cli_hosts=(`kubectl -n $namespace get pod --selector role=gpfs-cli,cluster=$cluster -ojsonpath="{.items[*].spec.nodeName}"`)
+clis=(`kubectl -n $namespace get pods --selector role=gpfs-cli,cluster=$cluster -ojsonpath="{.items[*].metadata.name}"`)
+mgrs=(`kubectl -n $namespace get pods --selector role=gpfs-mgr,cluster=$cluster -ojsonpath="{.items[*].metadata.name}"`)
+MGR_POD_NAME=(`kubectl -n $namespace get pods --selector app=mgr1,cluster=$cluster -ojsonpath="{.items[*].metadata.name}"`)
 RANDOM=$$$(date +%s)
 CLI_INDEX=$(($RANDOM % ${#clis[@]}))
 CLI_POD_NAME=${clis[$CLI_INDEX]}
