@@ -89,7 +89,7 @@ function gen_role () {
         fi
     done
     sed -i "s/%%%NODENAME%%%/${selected_worker}/g" "gpfs-${role}${index}.yaml"
-    sed -i "s/%%%PODNAME%%%/${CLUSTER_NAME}-${role}-${index}/g" "gpfs-${role}${index}.yaml"
+    sed -i "s/%%%PODNAME%%%/${CLUSTER_NAME}-gpfs-${role}-${index}/g" "gpfs-${role}${index}.yaml"
     sed -i "s/%%%POD_IP%%%/${pod_ip}/g" "gpfs-${role}${index}.yaml"
     if [[ $iam_ca == true ]] && [[ $role == "cli" ]]; then
         cp "$TEMPLATES_DIR/pv-patch.template.yaml" "pv-patch-${index}.yaml"
@@ -264,7 +264,7 @@ if [ ! -d $GPFS_INSTANCE_DIR ]; then
   exit 1
 fi
 cd $GPFS_INSTANCE_DIR
-FS_NAME=$(k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmlsfs all_local -T | grep attributes | awk -F\"/\" \"{print \\\$3}\" | sed \"s/://g\"")
+FS_NAME=$(k8s-exec gpfs-mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmlsfs all_local -T | grep attributes | awk -F\"/\" \"{print \\\$3}\" | sed \"s/://g\"")
 
 if [ $with_iam_ca == true ]; then
   if ! kubectl get secret iam-ca -n $NAMESPACE &> /dev/null; then
@@ -346,24 +346,24 @@ HOST_IP=$(kubectl get nodes ${HOST_NAME} -ojsonpath='{.status.addresses[0].addre
 POD_NAME="$(cat $CLI_FILE | grep -m1 name | awk '{print $2}')-0"
 for ((i=0; i < ${#roles_yaml[@]}; i+=g)); do
     scp -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" hosts "${USER}"@"${HOST_IP}": > /dev/null 2>&1
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}-$CLUSTER_NAME/var_mmfs\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}-$CLUSTER_NAME/root_ssh\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/cli${index}-$CLUSTER_NAME/etc_ssh\""
-    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/cli${index}-$CLUSTER_NAME/\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/gpfs-cli${index}-$CLUSTER_NAME/var_mmfs\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/gpfs-cli${index}-$CLUSTER_NAME/root_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mkdir -p /root/gpfs-cli${index}-$CLUSTER_NAME/etc_ssh\""
+    ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" "sudo su - -c \"mv /home/$USER/hosts /root/gpfs-cli${index}-$CLUSTER_NAME/\""
 
     for p in ${roles_yaml[@]:i:g}; do
         kubectl apply -f $p;
     done
 
-    podsReady=$(kubectl get pods --namespace=$NAMESPACE --selector app=cli${index},cluster=$CLUSTER_NAME -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" |  wc -l)
+    podsReady=$(kubectl get pods --namespace=$NAMESPACE --selector app=gpfs-cli${index},cluster=$CLUSTER_NAME -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" |  wc -l)
     podsReadyExpected=$(( $((i+g))<${#roles_yaml[@]} ? $((i+g)) : ${#roles_yaml[@]} ))
     # [ tty ] && tput sc @todo
     while [[ $count -le 600 ]] && [[ "$podsReady" -lt "$podsReadyExpected" ]]; do
-        podsReady=$(kubectl get pods --namespace=$NAMESPACE --selector app=cli${index},cluster=$CLUSTER_NAME -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" | wc -l)
+        podsReady=$(kubectl get pods --namespace=$NAMESPACE --selector app=gpfs-cli${index},cluster=$CLUSTER_NAME -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}' | grep -o "True" | wc -l)
         if [[ $(($count%10)) == 0 ]]; then
             # [ tty ] && tput rc @todo
             echo -e "\n${Yellow} Current situation of pods: ${Color_Off}"
-            kubectl get pods --namespace=$NAMESPACE --selector app=cli${index},cluster=$CLUSTER_NAME
+            kubectl get pods --namespace=$NAMESPACE --selector app=gpfs-cli${index},cluster=$CLUSTER_NAME
             if [[ $with_pvc == true ]]; then
                 echo -e "${Yellow} and persistent volumes: ${Color_Off}"
                 kubectl get pv --namespace=$NAMESPACE | grep "$NAMESPACE"
@@ -431,28 +431,28 @@ for i in $(seq 1 ${#mgr_pods[@]})
 do
   j=`expr $i - 1`
   ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" \
-  "echo \""$(kubectl -n $NAMESPACE exec -it ${mgr_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index-$CLUSTER_NAME/root_ssh/authorized_keys"
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${mgr_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/gpfs-cli${index}-$CLUSTER_NAME/root_ssh/authorized_keys"
 done
 
 for i in $(seq 1 ${#cli_pods[@]})
 do
   j=`expr $i - 1`
   ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${HOST_IP}" -l "${USER}" \
-  "echo \""$(kubectl -n $NAMESPACE exec -it ${cli_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$index-$CLUSTER_NAME/root_ssh/authorized_keys"
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${cli_pods[$j]} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/gpfs-cli${index}-$CLUSTER_NAME/root_ssh/authorized_keys"
 done
 
 for i in $(seq 1 ${#mgr_ips[@]})
 do
   j=`expr $i - 1`
   ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${mgr_ips[$j]}" -l "${USER}" \
-  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/mgr$i-$CLUSTER_NAME/root_ssh/authorized_keys"
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/gpfs-mgr$i-$CLUSTER_NAME/root_ssh/authorized_keys"
 done
 
 for i in $(seq 1 ${#cli_ips[@]})
 do
   j=`expr $i - 1`
   ssh -o "StrictHostKeyChecking=no" -i "${SSH_KEY}" -J "${JUMPHOST}" "${cli_ips[$j]}" -l "${USER}" \
-  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/cli$i-$CLUSTER_NAME/root_ssh/authorized_keys"
+  "echo \""$(kubectl -n $NAMESPACE exec -it ${POD_NAME} -- bash -c "cat /root/.ssh/id_rsa.pub")"\" | sudo tee -a /root/gpfs-cli$i-$CLUSTER_NAME/root_ssh/authorized_keys"
 done
 
 for pod in ${cli_pods[@]}
@@ -468,20 +468,20 @@ do
 done
 
 echo -e "${Yellow} Add GPFS node to the cluster from quorum-manager... ${Color_Off}"
-k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmaddnode -N $POD_NAME:client"
+k8s-exec gpfs-mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmaddnode -N $POD_NAME:client"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 echo -e "${Yellow} Assign GPFS client licenses to node... ${Color_Off}"
-k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmchlicense client --accept -N $POD_NAME"
+k8s-exec gpfs-mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmchlicense client --accept -N $POD_NAME"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 echo -e "${Yellow} Check GPFS cluster configuration... ${Color_Off}"
-k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmlscluster"
+k8s-exec gpfs-mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmlscluster"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 echo -e "${Yellow} Start GPFS daemon on client node... ${Color_Off}"
 failure=0; pids="";
-k8s-exec cli${index} ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmstartup"
+k8s-exec gpfs-cli${index} ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmstartup"
 pids="${pids} $!"
 sleep 0.1
 for pid in ${pids}; do
@@ -498,18 +498,18 @@ check_active() {
     [[ "${*}" =~ ^(active )*active$ ]]
     return
 }
-node_states=(`k8s-exec mgr1 ${CLUSTER_NAME} '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
+node_states=(`k8s-exec gpfs-mgr1 ${CLUSTER_NAME} '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
 until check_active ${node_states[*]}
 do
-  node_states=(`k8s-exec mgr1 ${CLUSTER_NAME} '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
+  node_states=(`k8s-exec gpfs-mgr1 ${CLUSTER_NAME} '/usr/lpp/mmfs/bin/mmgetstate -a | grep gpfs | awk '"'"'{print \$3}'"'"`)
 done
 
 sleep 30
-k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmgetstate -a"
+k8s-exec gpfs-mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmgetstate -a"
 
 echo -e "${Yellow} Mount GPFS file system on client node... ${Color_Off}"
 failure=0; pids="";
-k8s-exec cli${index} ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmmount all_local"
+k8s-exec gpfs-cli${index} ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmmount all_local"
 pids="${pids} $!"
 sleep 0.1
 for pid in ${pids}; do
@@ -521,35 +521,35 @@ if [[ "${failure}" == "1" ]]; then
 fi
 
 echo -e "${Yellow} Setup sensors and collectors to gather monitoring metrics... ${Color_Off}"
-k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmchnode --perfmon -N ${POD_NAME}"
+k8s-exec gpfs-mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmchnode --perfmon -N ${POD_NAME}"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
-k8s-exec cli${index} ${CLUSTER_NAME} "systemctl start pmsensors; systemctl stop pmsensors; systemctl start pmsensors"
+k8s-exec gpfs-cli${index} ${CLUSTER_NAME} "systemctl start pmsensors; systemctl stop pmsensors; systemctl start pmsensors"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
-k8s-exec cli${index} ${CLUSTER_NAME} "systemctl start pmcollector"
+k8s-exec gpfs-cli${index} ${CLUSTER_NAME} "systemctl start pmcollector"
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 
 PROMETHEUS_FILE="prometheus.yaml"
 if [ -f "$PROMETHEUS_FILE" ]; then
   echo -e "${Yellow} Setup Prometheus and Grafana monitoring for client node... ${Color_Off}"
-  k8s-exec cli${index} ${CLUSTER_NAME} "systemctl daemon-reload && systemctl start gpfs_exporter"
+  k8s-exec gpfs-cli${index} ${CLUSTER_NAME} "systemctl daemon-reload && systemctl start gpfs_exporter"
   if [[ "$?" -ne 0 ]]; then exit 1; fi
 fi
 
 sleep 10
 
 if command -v oc &> /dev/null; then
-  oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po --selector app=mgr1,cluster=$CLUSTER_NAME -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
+  oc -n $NAMESPACE rsh $(oc -n $NAMESPACE get po --selector app=gpfs-mgr1,cluster=$CLUSTER_NAME -ojsonpath="{.items[0].metadata.name}") /usr/lpp/mmfs/bin/mmhealth cluster show
 else
-  k8s-exec mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmhealth cluster show"
+  k8s-exec gpfs-mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmhealth cluster show"
 fi
 
 echo -e "${Yellow} Starting StoRM-WebDAV service on client node... ${Color_Off}"
-k8s-exec cli${index} ${CLUSTER_NAME} "su - storm -c \"cp /tmp/.storm-webdav/certs/tls.key /etc/grid-security/storm-webdav/hostkey.pem\""
+k8s-exec gpfs-cli${index} ${CLUSTER_NAME} "su - storm -c \"cp /tmp/.storm-webdav/certs/tls.key /etc/grid-security/storm-webdav/hostkey.pem\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi
-k8s-exec cli${index} ${CLUSTER_NAME} "su - storm -c \"cp /tmp/.storm-webdav/certs/tls.crt /etc/grid-security/storm-webdav/hostcert.pem\""
+k8s-exec gpfs-cli${index} ${CLUSTER_NAME} "su - storm -c \"cp /tmp/.storm-webdav/certs/tls.crt /etc/grid-security/storm-webdav/hostcert.pem\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi
-k8s-exec-bkg cli${index} ${CLUSTER_NAME} "su - storm -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
+k8s-exec-bkg gpfs-cli${index} ${CLUSTER_NAME} "su - storm -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
 -Dspring.profiles.active=\$STORM_WEBDAV_PROFILE -Dlogging.config=\$STORM_WEBDAV_LOG_CONFIGURATION -jar \$STORM_WEBDAV_JAR \
 > \$STORM_WEBDAV_OUT 2>\$STORM_WEBDAV_ERR\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: &name cli%%%NUMBER%%%
+  name: &name gpfs-cli%%%NUMBER%%%
   namespace: %%%NAMESPACE%%%
 spec:
   selector:

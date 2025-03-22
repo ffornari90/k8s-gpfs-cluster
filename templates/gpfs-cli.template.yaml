@@ -7,20 +7,20 @@ metadata:
   name: %%%PODNAME%%%
   namespace: %%%NAMESPACE%%%
   labels:
-    app: cli%%%NUMBER%%%
+    app: gpfs-cli%%%NUMBER%%%
     cluster: %%%CLUSTER_NAME%%%
     role: gpfs-cli
 spec:
   selector:
     matchLabels:
-      app: cli%%%NUMBER%%%
+      app: gpfs-cli%%%NUMBER%%%
       cluster: %%%CLUSTER_NAME%%%
       role: gpfs-cli
-  serviceName: &name cli%%%NUMBER%%%
+  serviceName: &name gpfs-cli%%%NUMBER%%%
   replicas: 1
   template:
     metadata:
-      name: &name cli%%%NUMBER%%%
+      name: &name gpfs-cli%%%NUMBER%%%
       labels:
         app: *name
         cluster: %%%CLUSTER_NAME%%%
@@ -38,16 +38,16 @@ spec:
           path: /home/%%%USER%%%
       - name: hostsfile
         hostPath:
-          path: /root/cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%/hosts
+          path: /root/gpfs-cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%/hosts
       - name: gendir
         hostPath:
-          path: /root/cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%/var_mmfs
+          path: /root/gpfs-cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%/var_mmfs
       - name: etcsshdir
         hostPath:
-          path: /root/cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%/etc_ssh
+          path: /root/gpfs-cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%/etc_ssh
       - name: rootsshdir
         hostPath:
-          path: /root/cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%/root_ssh
+          path: /root/gpfs-cli%%%NUMBER%%%-%%%CLUSTER_NAME%%%/root_ssh
       - name: application-indigo
         configMap:
           name: application-indigo-%%%CLUSTER_NAME%%%

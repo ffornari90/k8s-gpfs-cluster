@@ -4,20 +4,20 @@ metadata:
   name: %%%PODNAME%%%
   namespace: %%%NAMESPACE%%%
   labels:
-    app: mgr%%%NUMBER%%%
+    app: gpfs-mgr%%%NUMBER%%%
     cluster: %%%CLUSTER_NAME%%%
     role: gpfs-mgr
 spec:
   selector:
     matchLabels:
-      app: mgr%%%NUMBER%%%
+      app: gpfs-mgr%%%NUMBER%%%
       cluster: %%%CLUSTER_NAME%%%
       role: gpfs-mgr
-  serviceName: &name mgr%%%NUMBER%%%
+  serviceName: &name gpfs-mgr%%%NUMBER%%%
   replicas: 1
   template:
     metadata:
-      name: &name mgr%%%NUMBER%%%
+      name: &name gpfs-mgr%%%NUMBER%%%
       labels:
         app: *name
         cluster: %%%CLUSTER_NAME%%%
@@ -74,13 +74,13 @@ spec:
           path: /home/%%%USER%%%
       - name: hostsfile
         hostPath:
-          path: /root/mgr%%%NUMBER%%%-%%%CLUSTER_NAME%%%/hosts
+          path: /root/gpfs-mgr%%%NUMBER%%%-%%%CLUSTER_NAME%%%/hosts
       - name: gendir
         hostPath:
-          path: /root/mgr%%%NUMBER%%%-%%%CLUSTER_NAME%%%/var_mmfs
+          path: /root/gpfs-mgr%%%NUMBER%%%-%%%CLUSTER_NAME%%%/var_mmfs
       - name: etcsshdir
         hostPath:
-          path: /root/mgr%%%NUMBER%%%-%%%CLUSTER_NAME%%%/etc_ssh
+          path: /root/gpfs-mgr%%%NUMBER%%%-%%%CLUSTER_NAME%%%/etc_ssh
       - name: rootsshdir
         hostPath:
-          path: /root/mgr%%%NUMBER%%%-%%%CLUSTER_NAME%%%/root_ssh
+          path: /root/gpfs-mgr%%%NUMBER%%%-%%%CLUSTER_NAME%%%/root_ssh
