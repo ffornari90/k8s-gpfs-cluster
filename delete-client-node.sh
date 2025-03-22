@@ -18,7 +18,7 @@ WORKER_COUNT="${#workers[@]}"
 cli_hosts=(`kubectl -n $namespace get pod --selector role=gpfs-cli,cluster=$cluster -ojsonpath="{.items[*].spec.nodeName}"`)
 clis=(`kubectl -n $namespace get pods --selector role=gpfs-cli,cluster=$cluster -ojsonpath="{.items[*].metadata.name}"`)
 mgrs=(`kubectl -n $namespace get pods --selector role=gpfs-mgr,cluster=$cluster -ojsonpath="{.items[*].metadata.name}"`)
-MGR_POD_NAME=(`kubectl -n $namespace get pods --selector app=mgr1,cluster=$cluster -ojsonpath="{.items[*].metadata.name}"`)
+MGR_POD_NAME=(`kubectl -n $namespace get pods --selector app=gpfs-mgr1,cluster=$cluster -ojsonpath="{.items[*].metadata.name}"`)
 RANDOM=$$$(date +%s)
 CLI_INDEX=$(($RANDOM % ${#clis[@]}))
 CLI_POD_NAME=${clis[$CLI_INDEX]}
@@ -44,7 +44,7 @@ do
   kubectl -n $namespace exec $mgr -- bash -c "sed -i \"/"$CLI_POD_NAME"/d\" /root/.ssh/authorized_keys"
 done
 IP_ADDR=$(kubectl get node $HOST_NAME -ojsonpath="{.status.addresses[0].address}")
-ssh -o "StrictHostKeyChecking=no" $IP_ADDR -J $jumphost -i $ssh_key -l $user "sudo su - -c \"rm -rf /root/cli${OFFSET}-$cluster\""
+ssh -o "StrictHostKeyChecking=no" $IP_ADDR -J $jumphost -i $ssh_key -l $user "sudo su - -c \"rm -rf /root/gpfs-cli${OFFSET}-$cluster\""
 rm -rf "./gpfs-instance-$cluster/cli-svc${OFFSET}.yaml"
 rm -rf "./gpfs-instance-$cluster/gpfs-cli${OFFSET}.yaml"
 rm -rf "./gpfs-instance-$cluster/client-req${OFFSET}.json"

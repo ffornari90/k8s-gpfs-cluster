@@ -17,7 +17,7 @@ workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="true" -ojsonpath="
 WORKER_COUNT="${#workers[@]}"
 NSD_FILE="./gpfs-instance-$cluster/nsd-configmap.yaml"
 if [ -f "$NSD_FILE" ]; then
-  POD_NAME=$(kubectl -n $namespace get po --selector app=mgr1,cluster=$cluster -ojsonpath="{.items[*].metadata.name}")
+  POD_NAME=$(kubectl -n $namespace get po --selector app=gpfs-mgr1,cluster=$cluster -ojsonpath="{.items[*].metadata.name}")
   FS_NAME=$(kubectl -n $namespace exec $POD_NAME -- /usr/lpp/mmfs/bin/mmlsmount all_local | awk '{print $3}')
   kubectl -n $namespace exec $POD_NAME -- /usr/lpp/mmfs/bin/mmumount all -a
   kubectl -n $namespace exec $POD_NAME -- /usr/lpp/mmfs/bin/mmdelfs $FS_NAME -p
@@ -30,12 +30,12 @@ do
   if [ -f "$MGR_FILE" ]; then
     HOST_NAME=$(cat $MGR_FILE | grep nodeName | awk '{print $2}')
     IP_ADDR=$(kubectl get node $HOST_NAME -ojsonpath="{.status.addresses[0].address}")
-    ssh -o "StrictHostKeyChecking=no" $IP_ADDR -J $jumphost -i $ssh_key -l $user "sudo su - -c \"rm -rf /root/mgr*-$cluster\""
+    ssh -o "StrictHostKeyChecking=no" $IP_ADDR -J $jumphost -i $ssh_key -l $user "sudo su - -c \"rm -rf /root/gpfs-mgr*-$cluster\""
   fi
   if [ -f "$CLI_FILE" ]; then
     HOST_NAME=$(cat $CLI_FILE | grep nodeName | awk '{print $2}')
     IP_ADDR=$(kubectl get node $HOST_NAME -ojsonpath="{.status.addresses[0].address}")
-    ssh -o "StrictHostKeyChecking=no" $IP_ADDR -J $jumphost -i $ssh_key -l $user "sudo su - -c \"rm -rf /root/cli*-$cluster\""
+    ssh -o "StrictHostKeyChecking=no" $IP_ADDR -J $jumphost -i $ssh_key -l $user "sudo su - -c \"rm -rf /root/gpfs-cli*-$cluster\""
   fi
 done
 GRAFANA_FILE="./gpfs-instance-$cluster/grafana.yaml"

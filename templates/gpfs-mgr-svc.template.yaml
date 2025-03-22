@@ -1,11 +1,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: &name gpfs-mgr%%%NUMBER%%%
+  name: gpfs-mgr%%%NUMBER%%%-%%%CLUSTER_NAME%%%
   namespace: %%%NAMESPACE%%%
 spec:
   selector:
-    app: *name
+    app: gpfs-mgr%%%NUMBER%%%
+    cluster: %%%CLUSTER_NAME%%%
   ports:
   - name: gpfs-svc
     protocol: TCP

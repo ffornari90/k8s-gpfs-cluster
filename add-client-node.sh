@@ -116,8 +116,8 @@ function k8s-exec() {
 function k8s-exec-bkg() {
 
     local namespace=$NAMESPACE
+    local cluster=$CLUSTER_NAME
     local app=$1
-    local cluster=$2
     shift
     local k8cmd="$@"
     local pod_name=$(kubectl get pods --namespace=$namespace --selector app=$app,cluster=$cluster | grep -E '([0-9]+)/\1' | awk '{print $1}')
@@ -289,6 +289,7 @@ cp "$TEMPLATES_DIR/storm-webdav-ingress.template.yaml" "storm-webdav-ingress.yam
 cp "$TEMPLATES_DIR/storm-webdav-configmap.template.yaml" "storm-webdav-configmap.yaml"
 cp "$TEMPLATES_DIR/client-req.template.json" "client-req${index}.json"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "cli-svc${index}.yaml"
+sed -i "s/%%%CLUSTER_NAME%%%/$CLUSTER_NAME/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NUMBER%%%/${index}/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-svc.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-configmap.yaml"
@@ -549,7 +550,7 @@ k8s-exec gpfs-cli${index} ${CLUSTER_NAME} "su - storm -c \"cp /tmp/.storm-webdav
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 k8s-exec gpfs-cli${index} ${CLUSTER_NAME} "su - storm -c \"cp /tmp/.storm-webdav/certs/tls.crt /etc/grid-security/storm-webdav/hostcert.pem\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi
-k8s-exec-bkg gpfs-cli${index} ${CLUSTER_NAME} "su - storm -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
+k8s-exec-bkg gpfs-cli${index} "su - storm -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
 -Dspring.profiles.active=\$STORM_WEBDAV_PROFILE -Dlogging.config=\$STORM_WEBDAV_LOG_CONFIGURATION -jar \$STORM_WEBDAV_JAR \
 > \$STORM_WEBDAV_OUT 2>\$STORM_WEBDAV_ERR\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi
