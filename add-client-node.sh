@@ -31,6 +31,7 @@ function usage () {
     echo "-k    Specify SSH key path for cluster creation (default is ~/.ssh/id_rsa)"
     echo "-j    Specify jump host for cluster creation (default is jumphost)"
     echo "-m    Specify cluster issuer name to be used for StoRM-WebDAV certificate request (default is clusterissuer)"
+    echo "-n    Specify worker node for Pod creation (default is randomly selected)"
     echo "-t    Specify desired timeout for node creation in seconds (default is 3600)"
     echo "-u    Specify user to perform cluster creation (default is core)"
     echo "-v    Specify desired GPFS version for node creation (default is 5.1.8-2)"
@@ -66,7 +67,11 @@ function gen_role () {
     sed -i "s/%%%FS_NAME%%%/${fs_name}/g" "gpfs-${role}${index}.yaml"
     workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="true" -o=jsonpath='{range .items[1:]}{.metadata.name}{"\n"}{end}'`)
     RANDOM=$$$(date +%s)
-    selected_worker=${workers[ $RANDOM % ${#workers[@]} ]}
+    if [ -z "$WORKER_NODE" ]; then
+        selected_worker=${workers[ $RANDOM % ${#workers[@]} ]}
+    else
+        selected_worker=$WORKER_NODE
+    fi
     CIDR="$(calicoctl ipam check | grep host:${selected_worker}: | awk '{print $3}')"
     IP_LIST=($(nmap -sL $CIDR | awk '/Nmap scan report/{print $NF}' | grep -v '^$' | sed -e 's/(//g' -e 's/)//g'))
     ALLOCATED_IPS=($(comm -23 <(kubectl get po -ojsonpath='{range .items[?(@.status.phase=="Running")]}{.status.podIP}{"\n"}{end}' -A | sort) \
@@ -147,6 +152,7 @@ SSH_KEY="~/.ssh/id_rsa"
 USER="core"
 VERSION=5.1.8-2
 workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="true" -ojsonpath="{.items[*].metadata.name}"`)
+WORKER_NODE=""
 WORKER_COUNT="${#workers[@]}"
 with_iam_ca=false
 IAM_CA_FILE=""
@@ -155,7 +161,7 @@ DOMAIN="example.com"
 CONTROLLER_IP="192.168.0.1"
 CLUSTER_ISSUER="clusterissuer"
 
-while getopts 'N:C:a:b:d:i:p:c:k:j:m:t:u:v:h' opt; do
+while getopts 'N:C:a:b:d:i:p:c:k:j:m:n:t:u:v:h' opt; do
     case "${opt}" in
         N) # a DNS-1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
             if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
@@ -208,6 +214,11 @@ while getopts 'N:C:a:b:d:i:p:c:k:j:m:t:u:v:h' opt; do
                 then CLUSTER_ISSUER=${OPTARG}
                 else echo "! Wrong arg -$opt"; exit 1
             fi ;;
+        n) # worker node name must consist of a valid FQDN
+            if [[ $OPTARG =~ ^[[:alnum:]][[:alnum:].-]*[[:alnum:]]$ ]];
+                then WORKER_NODE=${OPTARG}
+                else echo "! Wrong arg -$opt"; exit 1
+            fi ;;
         t) # timeout must be an integer greater than 0
             if [[ $OPTARG =~ ^[0-9]+$ ]] && [[ $OPTARG -gt 0 ]]; then
                 TIMEOUT=${OPTARG}
@@ -243,6 +254,7 @@ echo "CC_IMAGE_REPO=$CC_IMAGE_REPO"
 echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "TIMEOUT=$TIMEOUT"
 echo "VERSION=$VERSION"
+echo "WORKER_NODE=$WORKER_NODE"
 echo "with_iam_ca=$with_iam_ca"
 echo "IAM_CA_FILE=$IAM_CA_FILE"
 echo "OIDC_PROVIDER=$OIDC_PROVIDER"
@@ -566,6 +578,7 @@ echo "CC_IMAGE_REPO=$CC_IMAGE_REPO"
 echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "TIMEOUT=$TIMEOUT"
 echo "VERSION=$VERSION"
+echo "WORKER_NODE=$WORKER_NODE"
 echo "with_iam_ca=$with_iam_ca"
 echo "IAM_CA_FILE=$IAM_CA_FILE"
 echo "OIDC_PROVIDER=$OIDC_PROVIDER"
