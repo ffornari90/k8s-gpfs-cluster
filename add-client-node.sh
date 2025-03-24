@@ -32,6 +32,7 @@ function usage () {
     echo "-j    Specify jump host for cluster creation (default is jumphost)"
     echo "-m    Specify cluster issuer name to be used for StoRM-WebDAV certificate request (default is clusterissuer)"
     echo "-n    Specify worker node for Pod creation (default is randomly selected)"
+    echo "-o    Specify path to OIDC client configuration JSON (default is generation of new OIDC client)"
     echo "-t    Specify desired timeout for node creation in seconds (default is 3600)"
     echo "-u    Specify user to perform cluster creation (default is core)"
     echo "-v    Specify desired GPFS version for node creation (default is 5.1.8-2)"
@@ -143,6 +144,7 @@ fi
 # defaults
 NAMESPACE="ns$(date +%s)"
 CLUSTER_NAME="gpfs$(date +%s)"
+CLIENT_JSON=""
 CC_IMAGE_REPO="ffornari/gpfs-storm-webdav"
 CC_IMAGE_TAG="rhel8"
 HOST_COUNT=0
@@ -161,7 +163,7 @@ DOMAIN="example.com"
 CONTROLLER_IP="192.168.0.1"
 CLUSTER_ISSUER="clusterissuer"
 
-while getopts 'N:C:a:b:d:i:p:c:k:j:m:n:t:u:v:h' opt; do
+while getopts 'N:C:a:b:d:i:p:c:k:j:m:n:o:t:u:v:h' opt; do
     case "${opt}" in
         N) # a DNS-1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
             if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
@@ -219,6 +221,11 @@ while getopts 'N:C:a:b:d:i:p:c:k:j:m:n:t:u:v:h' opt; do
                 then WORKER_NODE=${OPTARG}
                 else echo "! Wrong arg -$opt"; exit 1
             fi ;;
+        o) # client JSON path must consist of a unix file path
+            if [[ $OPTARG =~ ^(.+)\/([^\/]+)$ ]];
+                then CLIENT_JSON=${OPTARG}
+                else echo "! Wrong arg -$opt"; exit 1
+            fi ;;
         t) # timeout must be an integer greater than 0
             if [[ $OPTARG =~ ^[0-9]+$ ]] && [[ $OPTARG -gt 0 ]]; then
                 TIMEOUT=${OPTARG}
@@ -250,6 +257,7 @@ shift $((OPTIND-1))
 
 echo "NAMESPACE=$NAMESPACE"
 echo "CLUSTER_NAME=$CLUSTER_NAME"
+echo "CLIENT_JSON=$CLIENT_JSON"
 echo "CC_IMAGE_REPO=$CC_IMAGE_REPO"
 echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "TIMEOUT=$TIMEOUT"
@@ -315,8 +323,15 @@ sed -i "s/%%%CONTROLLER_IP%%%/$CONTROLLER_IP/g" "storm-webdav-ingress.yaml"
 sed -i "s/%%%CLUSTER_ISSUER%%%/$CLUSTER_ISSUER/g" "storm-webdav-ingress.yaml"
 sed -i "s/%%%NUMBER%%%/${index}/g" "storm-webdav-ingress.yaml"
 
-curl -H "Content-Type: application/json" -d "@client-req${index}.json" -X POST \
- -sk https://${OIDC_PROVIDER}/iam/api/client-registration > "client${index}.json"
+if [ -z "$CLIENT_JSON" ]; then
+    curl -H "Content-Type: application/json" -d "@client-req${index}.json" -X POST \
+    -sk https://${OIDC_PROVIDER}/iam/api/client-registration > "client${index}.json"
+elif [ -f "$CLIENT_JSON" ]; then
+    cat "$CLIENT_JSON" > "client${index}.json"
+else
+    echo "File $CLIENT_JSON does not exist. Exiting."
+    exit 1
+fi
 
 OIDC_CLIENT_ID=$(jq -r '.client_id' "client${index}.json")
 OIDC_CLIENT_SECRET=$(jq -r '.client_secret' "client${index}.json")
@@ -573,6 +588,7 @@ echo -e "${Green} Exec went OK for all the Pods ${Color_Off}"
 # print configuration summary
 echo ""
 echo "NAMESPACE=$NAMESPACE"
+echo "CLIENT_JSON=$CLIENT_JSON"
 echo "CLUSTER_NAME=$CLUSTER_NAME"
 echo "CC_IMAGE_REPO=$CC_IMAGE_REPO"
 echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
