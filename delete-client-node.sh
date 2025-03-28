@@ -26,8 +26,14 @@ CLI_NAME=$(echo "$CLI_POD_NAME" | sed 's/-0$//')
 CLI_FILE=$(grep -m1 -Ir $CLI_NAME gpfs-instance-$cluster | awk -F':' '{print $1}')
 OFFSET=$(echo "$CLI_FILE" | grep -oP '\d+(?=[^/]*$)')
 HOST_NAME=${cli_hosts[$CLI_INDEX]}
+FS_NAME=$(kubectl -n $namespace exec $MGR_POD_NAME -- bash -c "/usr/lpp/mmfs/bin/mmlsfs all_local -T | grep attributes | awk -F\"/\" \"{print \\\$3}\" | sed \"s/://g\"")
+FILESET_NAME=$(grep rootPath gpfs-instance-$cluster/storm-webdav-configmap.yaml | awk -F'/' '{print $NF}')
 kubectl -n $namespace exec $CLI_POD_NAME -- /usr/bin/pkill -u storm
-kubectl -n $namespace exec $CLI_POD_NAME -- /usr/lpp/mmfs/bin/mmumount all -a
+kubectl -n $namespace exec $CLI_POD_NAME -- /usr/lpp/mmfs/bin/mmumount $FS_NAME
+kubectl -n $namespace exec $CLI_POD_NAME -- /usr/lpp/mmfs/bin/mmshutdown
+if [ ! -z "$FILESET_NAME" ]; then
+  kubectl -n $namespace exec $MGR_POD_NAME -- /usr/lpp/mmfs/bin/mmunlinkfileset $FS_NAME $FILESET_NAME
+fi
 kubectl -n $namespace exec $MGR_POD_NAME -- /usr/lpp/mmfs/bin/mmdelnode -N $CLI_POD_NAME
 kubectl delete -f "./gpfs-instance-$cluster/gpfs-cli${OFFSET}.yaml"
 kubectl delete -f "./gpfs-instance-$cluster/cli-svc${OFFSET}.yaml"

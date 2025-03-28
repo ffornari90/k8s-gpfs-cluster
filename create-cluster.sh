@@ -607,7 +607,7 @@ else
     k8s-exec gpfs-mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmgetstate -a"
 fi
 
-if ! [ -z "$FS_NAME" ]; then
+if [ ! -z "$FS_NAME" ]; then
     echo -e "${Yellow} Create GPFS file system on previously created NSDs... ${Color_Off}"
     k8s-exec gpfs-mgr1 ${CLUSTER_NAME} "/usr/lpp/mmfs/bin/mmcrfs ${FS_NAME} -F /tmp/StanzaFile -A no -B 4M -m ${NSD_COUNT} -M ${NSD_COUNT} -n 100 -Q yes -j scatter -k nfs4 -r ${NSD_COUNT} -R ${NSD_COUNT} -T /ibm/${FS_NAME}"
     if [[ "$?" -ne 0 ]]; then exit 1; fi

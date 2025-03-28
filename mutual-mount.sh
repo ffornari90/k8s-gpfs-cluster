@@ -240,3 +240,20 @@ kubectl \
   -- \
   bash -c \
   "/usr/lpp/mmfs/bin/mmmount ${ACCESSING_FSNAME}-dual"
+
+# Setup FSWATCH between ACCESSING and OWNING FS
+kubectl \
+  -n $ACCESSING_NAMESPACE \
+  exec -t \
+  $ACCESSING_MGR \
+  -- \
+  bash -c \
+  "microdnf install -y fswatch rsync"
+
+kubectl \
+  -n $ACCESSING_NAMESPACE \
+  exec -t \
+  $ACCESSING_MGR \
+  -- \
+  bash -c \
+  "nohup sh -c \"/usr/bin/fswatch -o /ibm/${ACCESSING_FSNAME} | /usr/bin/xargs -n1 -I{} /usr/bin/rsync -a /ibm/${ACCESSING_FSNAME}/ /ibm/${ACCESSING_FSNAME}-dual\" > /tmp/fswatch.log 2>&1 & disown"

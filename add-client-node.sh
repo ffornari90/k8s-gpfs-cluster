@@ -28,12 +28,15 @@ function usage () {
     echo "-i    Specify docker image tag to be used for node creation (default is $CC_IMAGE_TAG)"
     echo "-p    Specify an OIDC provider for StoRM-WebDAV authentication (default is iam.example.com)"
     echo "-c    Specify a CA certificate to be used for OIDC provider (default is none)"
+    echo "-f    Specify GPFS fileset to be used for StoRM-WebDAV root path (default is none)"
     echo "-k    Specify SSH key path for cluster creation (default is ~/.ssh/id_rsa)"
     echo "-j    Specify jump host for cluster creation (default is jumphost)"
     echo "-m    Specify cluster issuer name to be used for StoRM-WebDAV certificate request (default is clusterissuer)"
     echo "-n    Specify worker node for Pod creation (default is randomly selected)"
     echo "-o    Specify path to OIDC client configuration JSON (default is generation of new OIDC client)"
+    echo "-s    Specify storage area name to be exposed by StoRM-WebDAV (default is sa)"
     echo "-t    Specify desired timeout for node creation in seconds (default is 3600)"
+    echo "-r    Specify password to perform Redis connection (default is empty)"
     echo "-u    Specify user to perform cluster creation (default is core)"
     echo "-v    Specify desired GPFS version for node creation (default is 5.1.8-2)"
     echo
@@ -157,13 +160,16 @@ workers=(`kubectl get nodes -lnode-role.kubernetes.io/worker="true" -ojsonpath="
 WORKER_NODE=""
 WORKER_COUNT="${#workers[@]}"
 with_iam_ca=false
+REDIS_PASSWORD=""
+FILESET_NAME=""
+STORAGE_AREA="sa"
 IAM_CA_FILE=""
 OIDC_PROVIDER="iam.example.com"
 DOMAIN="example.com"
 CONTROLLER_IP="192.168.0.1"
 CLUSTER_ISSUER="clusterissuer"
 
-while getopts 'N:C:a:b:d:i:p:c:k:j:m:n:o:t:u:v:h' opt; do
+while getopts 'N:C:a:b:d:i:p:c:f:k:j:m:n:o:t:s:r:u:v:h' opt; do
     case "${opt}" in
         N) # a DNS-1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
             if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
@@ -201,6 +207,11 @@ while getopts 'N:C:a:b:d:i:p:c:k:j:m:n:o:t:u:v:h' opt; do
                 echo "! Wrong arg -$opt"; exit 1
             fi
             with_iam_ca=true ;;
+        f) # fileset name must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
+            if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
+                then FILESET_NAME=${OPTARG}
+                else echo "! Wrong arg -$opt"; exit 1
+            fi ;;
         k) # SSH key path must consist of a unix file path
             if [[ $OPTARG =~ ^(.+)\/([^\/]+)$ ]];
                 then SSH_KEY=${OPTARG}
@@ -229,6 +240,17 @@ while getopts 'N:C:a:b:d:i:p:c:k:j:m:n:o:t:u:v:h' opt; do
         t) # timeout must be an integer greater than 0
             if [[ $OPTARG =~ ^[0-9]+$ ]] && [[ $OPTARG -gt 0 ]]; then
                 TIMEOUT=${OPTARG}
+            else
+                echo "! Wrong arg -$opt"; exit 1
+            fi ;;
+        s) # sa name must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character
+            if [[ $OPTARG =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]];
+                then STORAGE_AREA=${OPTARG}
+                else echo "! Wrong arg -$opt"; exit 1
+            fi ;;
+        r) # password must contain minimum eight characters, at least one letter, one number and one special character
+            if [[ ${#OPTARG} -ge 8 ]] && [[ "$OPTARG" =~ [a-z] ]] && [[ "$OPTARG" =~ [A-Z] ]] && [[ "$OPTARG" =~ [\@\#\$\%\^\&\+\=\!] ]]; then
+                REDIS_PASSWORD=${OPTARG}
             else
                 echo "! Wrong arg -$opt"; exit 1
             fi ;;
@@ -265,6 +287,9 @@ echo "VERSION=$VERSION"
 echo "WORKER_NODE=$WORKER_NODE"
 echo "with_iam_ca=$with_iam_ca"
 echo "IAM_CA_FILE=$IAM_CA_FILE"
+echo "REDIS_PASSWORD=$REDIS_PASSWORD"
+echo "STORAGE_AREA=$STORAGE_AREA"
+echo "FILESET_NAME=$FILESET_NAME"
 echo "OIDC_PROVIDER=$OIDC_PROVIDER"
 echo "USER=$USER"
 echo "SSH_KEY=$SSH_KEY"
@@ -308,13 +333,26 @@ cp "$TEMPLATES_DIR/storm-webdav-svc.template.yaml" "storm-webdav-svc.yaml"
 cp "$TEMPLATES_DIR/storm-webdav-ingress.template.yaml" "storm-webdav-ingress.yaml"
 cp "$TEMPLATES_DIR/storm-webdav-configmap.template.yaml" "storm-webdav-configmap.yaml"
 cp "$TEMPLATES_DIR/client-req.template.json" "client-req${index}.json"
+
+if [ ! -z "$REDIS_PASSWORD" ]; then
+    REDIS_HOST=redis-master.$NAMESPACE.svc.cluster.local
+    REDIS_PORT=6379
+    sed -i '/^  application-indigo.yml: |/a \ \ \ \ management:\n \ \ \ \ \ health:\n \ \ \ \ \ \ \ redis:\n \ \ \ \ \ \ \ \ \ enabled: true' storm-webdav-configmap.yaml
+    sed -i '/^    spring:*/a \ \ \ \ \ \ redis:\n \ \ \ \ \ \ \ host: %%%REDIS_HOST%%%\n \ \ \ \ \ \ \ port: %%%REDIS_PORT%%%\n \ \ \ \ \ \ \ password: %%%REDIS_PASSWORD%%%\n \ \ \ \ \ session:\n \ \ \ \ \ \ \ store-type: redis\n' storm-webdav-configmap.yaml
+    sed -i "s/%%%REDIS_HOST%%%/$REDIS_HOST/g" "storm-webdav-configmap.yaml"
+    sed -i "s/%%%REDIS_PORT%%%/$REDIS_PORT/g" "storm-webdav-configmap.yaml"
+    sed -i "s/%%%REDIS_PASSWORD%%%/$REDIS_PASSWORD/g" "storm-webdav-configmap.yaml"
+fi
+
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "cli-svc${index}.yaml"
 sed -i "s/%%%CLUSTER_NAME%%%/$CLUSTER_NAME/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NUMBER%%%/${index}/g" "cli-svc${index}.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-svc.yaml"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-configmap.yaml"
 sed -i "s/%%%CLUSTER_NAME%%%/$CLUSTER_NAME/g" "storm-webdav-configmap.yaml"
+sed -i "s/%%%FILESET_NAME%%%/$FILESET_NAME/g" "storm-webdav-configmap.yaml"
 sed -i "s/%%%FS_NAME%%%/$FS_NAME/g" "storm-webdav-configmap.yaml"
+sed -i "s/%%%STORAGE_AREA%%%/$STORAGE_AREA/g" "storm-webdav-configmap.yaml"
 sed -i "s/%%%OIDC_PROVIDER%%%/$OIDC_PROVIDER/g" "storm-webdav-configmap.yaml"
 sed -i "s#%%%REDIRECT_URI%%%#$REDIRECT_URI#g" "client-req${index}.json"
 sed -i "s/%%%NAMESPACE%%%/$NAMESPACE/g" "storm-webdav-ingress.yaml"
@@ -577,6 +615,10 @@ k8s-exec gpfs-cli${index} ${CLUSTER_NAME} "su - storm -c \"cp /tmp/.storm-webdav
 if [[ "$?" -ne 0 ]]; then exit 1; fi
 k8s-exec gpfs-cli${index} ${CLUSTER_NAME} "su - storm -c \"cp /tmp/.storm-webdav/certs/tls.crt /etc/grid-security/storm-webdav/hostcert.pem\""
 if [[ "$?" -ne 0 ]]; then exit 1; fi
+k8s-exec gpfs-cli${index} ${CLUSTER_NAME} "chown storm:storm /ibm/${FS_NAME}/${FILESET_NAME}"
+if [[ "$?" -ne 0 ]]; then exit 1; fi
+k8s-exec gpfs-cli${index} ${CLUSTER_NAME} "chown storm:storm /ibm/${FS_NAME}"
+if [[ "$?" -ne 0 ]]; then exit 1; fi
 k8s-exec-bkg gpfs-cli${index} "su - storm -c \"cd /etc/storm/webdav && /usr/bin/java \$STORM_WEBDAV_JVM_OPTS -Djava.io.tmpdir=\$STORM_WEBDAV_TMPDIR \
 -Dspring.profiles.active=\$STORM_WEBDAV_PROFILE -Dlogging.config=\$STORM_WEBDAV_LOG_CONFIGURATION -jar \$STORM_WEBDAV_JAR \
 > \$STORM_WEBDAV_OUT 2>\$STORM_WEBDAV_ERR\""
@@ -595,6 +637,9 @@ echo "CC_IMAGE_TAG=$CC_IMAGE_TAG"
 echo "TIMEOUT=$TIMEOUT"
 echo "VERSION=$VERSION"
 echo "WORKER_NODE=$WORKER_NODE"
+echo "REDIS_PASSWORD=$REDIS_PASSWORD"
+echo "STORAGE_AREA=$STORAGE_AREA"
+echo "FILESET_NAME=$FILESET_NAME"
 echo "with_iam_ca=$with_iam_ca"
 echo "IAM_CA_FILE=$IAM_CA_FILE"
 echo "OIDC_PROVIDER=$OIDC_PROVIDER"

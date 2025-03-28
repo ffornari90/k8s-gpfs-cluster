@@ -6,6 +6,9 @@ metadata:
   namespace: %%%NAMESPACE%%%
 data:
   application-indigo.yml: |
+    storm:
+      hostnames:
+        - %%%CLUSTER_NAME%%%
     spring:
       security:
         oauth2:
@@ -38,12 +41,12 @@ metadata:
 data:
   sa.properties: |
     # Name of the storage area
-    name=indigo-dc
+    name=%%%STORAGE_AREA%%%
     # Root path for the storage area. Files will be served from this path, which must exist and
     # must be accessible from the user that runs the storm webdav service
-    rootPath=/ibm/%%%FS_NAME%%%
+    rootPath=/ibm/%%%FS_NAME%%%/%%%FILESET_NAME%%%
     # Comma separated list of storage area access points. 
-    accessPoints=/indigo-dc
+    accessPoints=/%%%STORAGE_AREA%%%
     # Comma-separated list of OAuth/OpenID Connect token issuers trusted in this storage area
     orgs=https://%%%OIDC_PROVIDER%%%/
     # Enables write access to storage area files to users authenticated using OAuth/OIDC. Defaults to false.
