@@ -3,15 +3,17 @@
 #                                  Entrypoint                                  #
 # **************************************************************************** #
 
-if [ "$#" -lt 4 ]; then
-    echo "ERROR: Illegal number of parameters. Syntax: $0 <owning-namespace> <owning-cluster> <accessing-namespace> <accessing-cluster>"
+if [ "$#" -lt 6 ]; then
+    echo "ERROR: Illegal number of parameters. Syntax: $0 <owning-namespace> <owning-cluster> <owning-fileset> <accessing-namespace> <accessing-cluster> <accessing-fileset>"
     exit 1
 fi
 
 OWNING_NAMESPACE=$1
 OWNING_CLUSTER=$2
-ACCESSING_NAMESPACE=$3
-ACCESSING_CLUSTER=$4
+OWNING_FILESET=$3
+ACCESSING_NAMESPACE=$4
+ACCESSING_CLUSTER=$5
+ACCESSING_FILESET=$6
 
 OWNING_MGR=$(kubectl \
   -n $OWNING_NAMESPACE \
@@ -256,4 +258,4 @@ kubectl \
   $ACCESSING_MGR \
   -- \
   bash -c \
-  "nohup sh -c \"/usr/bin/fswatch -o /ibm/${ACCESSING_FSNAME} | /usr/bin/xargs -n1 -I{} /usr/bin/rsync -a /ibm/${ACCESSING_FSNAME}/ /ibm/${ACCESSING_FSNAME}-dual\" > /tmp/fswatch.log 2>&1 & disown"
+  "nohup sh -c \"/usr/bin/fswatch -o /ibm/${ACCESSING_FSNAME}/${ACCESSING_FILESET} | /usr/bin/xargs -n1 -I{} /usr/bin/rsync -a /ibm/${ACCESSING_FSNAME}/${ACCESSING_FILESET} /ibm/${ACCESSING_FSNAME}-dual/${OWNING_FILESET}\" > /tmp/fswatch.log 2>&1 & disown"
