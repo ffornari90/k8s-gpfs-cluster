@@ -258,4 +258,4 @@ kubectl \
   $ACCESSING_MGR \
   -- \
   bash -c \
-  "nohup sh -c \"/usr/bin/fswatch -o /ibm/${ACCESSING_FSNAME}/${ACCESSING_FILESET} | /usr/bin/xargs -n1 -I{} /usr/bin/rsync -a /ibm/${ACCESSING_FSNAME}/${ACCESSING_FILESET} /ibm/${ACCESSING_FSNAME}-dual/${OWNING_FILESET}\" > /tmp/fswatch.log 2>&1 & disown"
+  "nohup sh -c \"/usr/bin/fswatch -o /ibm/${ACCESSING_FSNAME}/${ACCESSING_FILESET} | /usr/bin/xargs -n1 -I{} /usr/bin/rsync -a /ibm/${ACCESSING_FSNAME}/${ACCESSING_FILESET}/ /ibm/${ACCESSING_FSNAME}-dual/${OWNING_FILESET}\" > /tmp/fswatch.log 2>&1 & disown"
