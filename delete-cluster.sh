@@ -52,7 +52,7 @@ if [ -f "$GRAFANA_FILE" ]; then
 fi
 for file in `ls ./gpfs-instance-$cluster/*.yaml | grep -vE '(namespace|patch)'`
 do 
-  kubectl delete -f $file
+  kubectl delete -f $file 2>/dev/null
 done
 #kubectl delete ns $namespace
 rm -rf "./gpfs-instance-$cluster"
